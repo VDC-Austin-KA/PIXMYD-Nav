@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace PIXMY4D_Nav.Core.Markers
+namespace PIXMYD_Nav.Core.Markers
 {
     /// <summary>A finished QR symbol: the module grid plus the parameters used to build it.</summary>
     public sealed class QrCode

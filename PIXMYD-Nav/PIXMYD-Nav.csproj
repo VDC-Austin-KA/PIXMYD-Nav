@@ -4,7 +4,7 @@
   installed copy of Navisworks Manage.
 
   Build a specific year with:
-      msbuild PIXMY4D-Nav\PIXMY4D-Nav.csproj /p:Configuration=Release-NW2027 /p:Platform=x64
+      msbuild PIXMYD-Nav\PIXMYD-Nav.csproj /p:Configuration=Release-NW2027 /p:Platform=x64
 -->
 <Project ToolsVersion="Current" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
@@ -15,8 +15,8 @@
     <ProjectGuid>{9A2E7C4F-3B8D-4E1A-8F6C-1D5B9E2A7C30}</ProjectGuid>
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>PIXMY4D_Nav</RootNamespace>
-    <AssemblyName>PIXMY4D-Nav</AssemblyName>
+    <RootNamespace>PIXMYD_Nav</RootNamespace>
+    <AssemblyName>PIXMYD-Nav</AssemblyName>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <Deterministic>true</Deterministic>

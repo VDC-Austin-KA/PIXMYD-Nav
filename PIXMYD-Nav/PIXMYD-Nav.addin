@@ -2,14 +2,14 @@
 <!--
   Navisworks add-in manifest.
 
-  Deployed alongside PIXMY4D-Nav.dll into:
-      C:\Program Files\Autodesk\Navisworks Manage <year>\Plugins\PIXMY4D-Nav\
+  Deployed alongside PIXMYD-Nav.dll into:
+      C:\Program Files\Autodesk\Navisworks Manage <year>\Plugins\PIXMYD-Nav\
 
-  The plugin appears on the Add-Ins ribbon tab as "PIXMY4D-Nav".
+  The plugin appears on the Add-Ins ribbon tab as "PIXMYD-Nav".
 -->
 <PluginsFile xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <Plugins>
-    <Plugin Name="PIXMY4D-Nav" Assembly="PIXMY4D-Nav.dll" DeveloperId="ACLP_VDC" DisplayName="PIXMY4D-Nav">
+    <Plugin Name="PIXMYD-Nav" Assembly="PIXMYD-Nav.dll" DeveloperId="ACLP_VDC" DisplayName="PIXMYD-Nav">
       <Description>Points, Field Marker Export and AR Model Export — bridge to the PIXMYD phone app</Description>
     </Plugin>
   </Plugins>

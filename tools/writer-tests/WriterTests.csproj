@@ -13,7 +13,7 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
     <LangVersion>7.3</LangVersion>
-    <RootNamespace>PIXMY4D_Nav</RootNamespace>
+    <RootNamespace>PIXMYD_Nav</RootNamespace>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <Nullable>disable</Nullable>
   </PropertyGroup>
@@ -24,9 +24,9 @@
     <Compile Include="LevelNameTests.cs" />
     <Compile Include="QrEncoderTests.cs" />
     <Compile Include="MarkerPageTests.cs" />
-    <Compile Include="../../PIXMY4D-Nav/Core/Points/PointSet.cs" />
-    <Compile Include="../../PIXMY4D-Nav/Core/Points/LevelName.cs" />
-    <Compile Include="../../PIXMY4D-Nav/Core/Markers/QrEncoder.cs" />
-    <Compile Include="../../PIXMY4D-Nav/Core/Markers/MarkerPage.cs" />
+    <Compile Include="../../PIXMYD-Nav/Core/Points/PointSet.cs" />
+    <Compile Include="../../PIXMYD-Nav/Core/Points/LevelName.cs" />
+    <Compile Include="../../PIXMYD-Nav/Core/Markers/QrEncoder.cs" />
+    <Compile Include="../../PIXMYD-Nav/Core/Markers/MarkerPage.cs" />
   </ItemGroup>
 </Project>

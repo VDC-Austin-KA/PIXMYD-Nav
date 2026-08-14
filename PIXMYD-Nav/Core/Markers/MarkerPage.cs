@@ -1,9 +1,9 @@
 using System;
 using System.Globalization;
 using System.Text;
-using PIXMY4D_Nav.Core.Points;
+using PIXMYD_Nav.Core.Points;
 
-namespace PIXMY4D_Nav.Core.Markers
+namespace PIXMYD_Nav.Core.Markers
 {
     /// <summary>
     /// Renders one printable page per point as a single self-contained HTML file:

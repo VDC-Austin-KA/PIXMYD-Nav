@@ -4,7 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 
-namespace PIXMY4D_Nav.Core.Points
+namespace PIXMYD_Nav.Core.Points
 {
     /// <summary>A 3D vector in the exported coordinate frame.</summary>
     public struct Vec3

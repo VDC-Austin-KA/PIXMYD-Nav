@@ -1,7 +1,7 @@
-using PIXMY4D_Nav.Core.Markers;
-using PIXMY4D_Nav.Core.Points;
+using PIXMYD_Nav.Core.Markers;
+using PIXMYD_Nav.Core.Points;
 
-namespace PIXMY4D_Nav
+namespace PIXMYD_Nav
 {
     internal static class MarkerPageTests
     {

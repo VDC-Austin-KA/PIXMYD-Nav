@@ -3,11 +3,11 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 
-namespace PIXMY4D_Nav.Core
+namespace PIXMYD_Nav.Core
 {
     /// <summary>
     /// Persists simple settings between sessions as a flat key=value text file
-    /// under %AppData%\PIXMY4D-Nav\settings.txt.
+    /// under %AppData%\PIXMYD-Nav\settings.txt.
     ///
     /// Deliberately not JSON: it round-trips without a parser dependency, survives
     /// hand-editing, and a corrupt or half-written file degrades to defaults
@@ -21,7 +21,7 @@ namespace PIXMY4D_Nav.Core
             {
                 return Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                    "PIXMY4D-Nav");
+                    "PIXMYD-Nav");
             }
         }
 

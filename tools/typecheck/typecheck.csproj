@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!--
-    Compiles every PIXMY4D-Nav source file on any platform, with no
+    Compiles every PIXMYD-Nav source file on any platform, with no
     Navisworks installation required.
 
     The Navisworks references come from the Speckle.Navisworks.API package.
@@ -25,8 +25,8 @@
   <PropertyGroup>
     <OutputType>Library</OutputType>
     <TargetFramework>net48</TargetFramework>
-    <RootNamespace>PIXMY4D_Nav</RootNamespace>
-    <AssemblyName>PIXMY4D-Nav.Typecheck</AssemblyName>
+    <RootNamespace>PIXMYD_Nav</RootNamespace>
+    <AssemblyName>PIXMYD-Nav.Typecheck</AssemblyName>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <NWPackageVersion Condition="'$(NWPackageVersion)' == ''">2027.0.0</NWPackageVersion>
@@ -37,7 +37,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="../../PIXMY4D-Nav/**/*.cs" Exclude="../../PIXMY4D-Nav/obj/**/*.cs;../../PIXMY4D-Nav/bin/**/*.cs" />
+    <Compile Include="../../PIXMYD-Nav/**/*.cs" Exclude="../../PIXMYD-Nav/obj/**/*.cs;../../PIXMYD-Nav/bin/**/*.cs" />
   </ItemGroup>
 
   <ItemGroup>

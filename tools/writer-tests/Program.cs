@@ -1,6 +1,6 @@
 using System;
 
-namespace PIXMY4D_Nav
+namespace PIXMYD_Nav
 {
     internal static class Program
     {

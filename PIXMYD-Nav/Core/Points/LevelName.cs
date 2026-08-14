@@ -1,4 +1,4 @@
-namespace PIXMY4D_Nav.Core.Points
+namespace PIXMYD_Nav.Core.Points
 {
     /// <summary>
     /// Pure level-name normalisation, copied verbatim from

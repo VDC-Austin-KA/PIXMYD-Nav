@@ -1,13 +1,13 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
 
-[assembly: AssemblyTitle("PIXMY4D-Nav")]
+[assembly: AssemblyTitle("PIXMYD-Nav")]
 [assembly: AssemblyDescription("Points, Field Marker Export and AR Model Export — bridge to the PIXMYD phone app\nSupported: Navisworks 2024, 2025, 2026, 2027")]
 [assembly: AssemblyConfiguration("Release")]
 [assembly: AssemblyCompany("Keith Acker")]
-[assembly: AssemblyProduct("PIXMY4D-Nav")]
+[assembly: AssemblyProduct("PIXMYD-Nav")]
 [assembly: AssemblyCopyright("Copyright © 2026 Keith Acker. All rights reserved.")]
-[assembly: AssemblyTrademark("PIXMY4D-Nav")]
+[assembly: AssemblyTrademark("PIXMYD-Nav")]
 [assembly: AssemblyCulture("")]
 
 [assembly: ComVisible(false)]

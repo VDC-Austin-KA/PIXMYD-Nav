@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
-using PIXMY4D_Nav.Core.Markers;
+using PIXMYD_Nav.Core.Markers;
 
-namespace PIXMY4D_Nav
+namespace PIXMYD_Nav
 {
     /// <summary>
     /// Proves QrEncoder correct against captured reference output from segno
