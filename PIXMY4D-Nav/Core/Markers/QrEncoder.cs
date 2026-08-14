@@ -93,7 +93,13 @@ namespace PIXMY4D_Nav.Core.Markers
             int targetBits = dataCw * 8;
             int terminator = Math.Min(4, targetBits - bits.Count);
             if (terminator > 0) AppendBits(bits, 0, terminator);
-            while (bits.Count % 8 != 0) bits.Add(false);
+
+            // Byte-boundary padding. Reference behaviour (segno, ISO/IEC 18004
+            // 7.4.10): always pad by (8 - len%8) bits, even when already
+            // aligned -- that adds a full zero byte in the aligned case. Not
+            // "only pad when misaligned"; matched exactly for bit-for-bit
+            // compatibility with the reference encoder.
+            AppendBits(bits, 0, 8 - (bits.Count % 8));
 
             byte[] pad = { 0xEC, 0x11 };
             int padIndex = 0;
@@ -127,17 +133,22 @@ namespace PIXMY4D_Nav.Core.Markers
             DrawFinderPattern(modules, isFunction, size, size - 7, 0);
             DrawTimingPatterns(modules, isFunction, size);
             DrawAlignmentPatterns(modules, isFunction, size, AlignmentCenters[version]);
-            DrawFormatBits(modules, isFunction, size, EcLevelBitsM, 0); // reserve format-info area
+            ReserveFormatArea(isFunction, size); // mark format-info cells as function (stays light) so codewords skip them
 
             var dataBits = new List<bool>();
             foreach (byte b in codewords) AppendBits(dataBits, b, 8);
             DrawCodewordBits(modules, isFunction, size, dataBits);
 
+            // Mask trial: do NOT draw format info in advance of evaluation (ISO/IEC
+            // 18004 7.8 Data masking is scored before format info exists; the format
+            // bits themselves depend on the chosen mask, so scoring with a guessed
+            // format value would bias the choice). Format-info cells stay light
+            // (reserved above, never touched by ApplyMask since isFunction is set)
+            // during every trial.
             int bestMask = -1, bestPenalty = int.MaxValue;
             for (int mask = 0; mask < 8; mask++)
             {
                 ApplyMask(modules, isFunction, size, mask);
-                DrawFormatBits(modules, isFunction, size, EcLevelBitsM, mask);
                 int penalty = Penalty(modules, size);
                 if (penalty < bestPenalty) { bestPenalty = penalty; bestMask = mask; }
                 ApplyMask(modules, isFunction, size, mask); // undo (XOR is self-inverse)
@@ -220,21 +231,49 @@ namespace PIXMY4D_Nav.Core.Markers
             return ((data << 10) | rem) ^ 0x5412;
         }
 
+        // Format info is drawn as two interleaved copies -- one read LSB-first
+        // (vbit), one MSB-first (hbit) -- around the two corners nearest the
+        // format strip. This is not a simple "reverse the bits" rule; ISO/IEC
+        // 18004 7.9 (Fig. 25) genuinely alternates convention by axis, and the
+        // row/col index skips the timing-pattern line (index 6) via voffset/
+        // hoffset. Transcribed directly from the reference layout rather than
+        // derived, since guessing at "the" bit order here is exactly what
+        // produced the earlier bug.
         private static void DrawFormatBits(bool[,] modules, bool[,] isFunction, int size, int ecLevelBits, int maskPattern)
         {
-            int bits = ComputeFormatBits(ecLevelBits, maskPattern);
-            Func<int, bool> bit = i => ((bits >> i) & 1) != 0;
-
-            for (int i = 0; i <= 5; i++) SetFn(modules, isFunction, 8, i, bit(i));
-            SetFn(modules, isFunction, 8, 7, bit(6));
-            SetFn(modules, isFunction, 8, 8, bit(7));
-            SetFn(modules, isFunction, 7, 8, bit(8));
-            for (int i = 9; i < 15; i++) SetFn(modules, isFunction, 14 - i, 8, bit(i));
-
-            for (int i = 0; i < 8; i++) SetFn(modules, isFunction, size - 1 - i, 8, bit(i));
-            for (int i = 8; i < 15; i++) SetFn(modules, isFunction, 8, size - 15 + i, bit(i));
-
+            int formatInfo = ComputeFormatBits(ecLevelBits, maskPattern);
+            int voffset = 0, hoffset = 0;
+            for (int i = 0; i < 8; i++)
+            {
+                bool vbit = ((formatInfo >> i) & 1) != 0;
+                bool hbit = ((formatInfo >> (14 - i)) & 1) != 0;
+                if (i == 6) { voffset = 1; hoffset = 1; }
+                SetFn(modules, isFunction, i + voffset, 8, vbit);       // vertical, upper-left corner
+                SetFn(modules, isFunction, 8, i + hoffset, hbit);       // horizontal, upper-left corner
+                SetFn(modules, isFunction, 8, size - 1 - i, vbit);      // horizontal, upper-right corner
+                SetFn(modules, isFunction, size - 1 - i, 8, hbit);      // vertical, bottom-left corner
+            }
             SetFn(modules, isFunction, size - 8, 8, true); // the fixed dark module
+        }
+
+        // Marks the format-info cells as function modules (excluded from data
+        // placement and masking) without writing their final values -- the real
+        // format bits depend on the mask chosen by the trial below, so ISO/IEC
+        // 18004 7.8 scores masks against the format area left light, then the
+        // caller draws the real bits with DrawFormatBits once a mask is picked.
+        // Position set mirrors DrawFormatBits exactly.
+        private static void ReserveFormatArea(bool[,] isFunction, int size)
+        {
+            int voffset = 0, hoffset = 0;
+            for (int i = 0; i < 8; i++)
+            {
+                if (i == 6) { voffset = 1; hoffset = 1; }
+                isFunction[i + voffset, 8] = true;
+                isFunction[8, i + hoffset] = true;
+                isFunction[8, size - 1 - i] = true;
+                isFunction[size - 1 - i, 8] = true;
+            }
+            isFunction[size - 8, 8] = true;
         }
 
         private static void SetFn(bool[,] modules, bool[,] isFunction, int r, int c, bool dark)
@@ -333,18 +372,50 @@ namespace PIXMY4D_Nav.Core.Markers
             return penalty;
         }
 
+        // 1:1:3:1:1 dark:light:dark:dark:dark:light:dark core, scored once per
+        // occurrence if it borders a light run of >=4 (on either side) or the
+        // symbol edge -- ISO/IEC 18004 7.8.3.1 N3. Matches segno's search
+        // algorithm exactly: an occurrence that qualifies skips past its whole
+        // core+margin before searching for the next one; one that doesn't
+        // qualify only advances 4 (so overlapping cores still get checked).
+        private static readonly bool[] FinderLikeCore = { true, false, true, true, true, false, true };
+
         private static int FinderLikePenalty(Func<int, bool> at, int size)
         {
-            // 1:1:3:1:1 dark:light:dark:dark:dark:light:dark ratio with 4 light modules on one side.
-            bool[] pattern = { true, false, true, true, true, false, true, false, false, false, false };
-            bool[] reversed = { false, false, false, false, true, false, true, true, true, false, true };
             int penalty = 0;
-            for (int i = 0; i <= size - 11; i++)
+            int idx = FindCore(at, size, 0);
+            while (idx != -1)
             {
-                if (Matches(at, i, pattern)) penalty += 40;
-                if (Matches(at, i, reversed)) penalty += 40;
+                int after = idx + 7;
+                bool lightBefore = !AnyDark(at, Math.Max(idx - 4, 0), Math.Min(idx, size));
+                bool lightAfter = !AnyDark(at, Math.Max(after, 0), Math.Min(after + 4, size));
+                int next;
+                if (idx == 0 || idx == size - 7 || lightBefore || lightAfter)
+                {
+                    penalty += 40;
+                    next = after;
+                }
+                else
+                {
+                    next = idx + 4;
+                }
+                idx = FindCore(at, size, next);
             }
             return penalty;
+        }
+
+        private static int FindCore(Func<int, bool> at, int size, int start)
+        {
+            for (int i = start; i <= size - 7; i++)
+                if (Matches(at, i, FinderLikeCore)) return i;
+            return -1;
+        }
+
+        private static bool AnyDark(Func<int, bool> at, int from, int to)
+        {
+            for (int i = from; i < to; i++)
+                if (at(i)) return true;
+            return false;
         }
 
         private static bool Matches(Func<int, bool> at, int start, bool[] pattern)
