@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Exercises every pure-logic file on any platform.
+
+    PointSet, LevelName, QrEncoder and MarkerPage never call into Navisworks, so
+    they compile and run on plain .NET 8 - no Shim.cs stand-ins needed (unlike
+    NavEx, which has to fake ModelGeometry/ModelItem for its format writers).
+
+      dotnet build tools/writer-tests/WriterTests.csproj -v minimal -o artifacts/bin
+      cd artifacts && dotnet exec bin/WriterTests.dll
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>7.3</LangVersion>
+    <RootNamespace>PIXMY4D_Nav</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="PointSetTests.cs" />
+    <Compile Include="LevelNameTests.cs" />
+    <Compile Include="QrEncoderTests.cs" />
+    <Compile Include="MarkerPageTests.cs" />
+    <Compile Include="../../PIXMY4D-Nav/Core/Points/PointSet.cs" />
+    <Compile Include="../../PIXMY4D-Nav/Core/Points/LevelName.cs" />
+    <Compile Include="../../PIXMY4D-Nav/Core/Markers/QrEncoder.cs" />
+    <Compile Include="../../PIXMY4D-Nav/Core/Markers/MarkerPage.cs" />
+  </ItemGroup>
+</Project>
