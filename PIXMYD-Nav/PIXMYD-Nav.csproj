@@ -124,6 +124,13 @@
     <Compile Include="Core\NavBridge\SceneReader.cs" />
     <Compile Include="Core\NavBridge\ViewportCapture.cs" />
     <Compile Include="Core\Ar\ArModelSet.cs" />
+    <Compile Include="Core\Markers\QrRender.cs" />
+    <Compile Include="Core\Json\JsonReader.cs" />
+    <Compile Include="Core\Transfer\TransferTicket.cs" />
+    <Compile Include="Core\Transfer\TransferManifest.cs" />
+    <Compile Include="Core\Transfer\TransferServer.cs" />
+    <Compile Include="Core\Capture\RigidSolve.cs" />
+    <Compile Include="Core\Capture\CaptureFile.cs" />
     <Compile Include="MainWindow.xaml.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>

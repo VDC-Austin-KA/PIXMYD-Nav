@@ -38,6 +38,12 @@
 
   <ItemGroup>
     <Compile Include="../../PIXMYD-Nav/**/*.cs" Exclude="../../PIXMYD-Nav/obj/**/*.cs;../../PIXMYD-Nav/bin/**/*.cs" />
+    <!--
+      The XAML stub gen_xaml_stub.py writes. Without it every x:Name in
+      MainWindow.xaml is an undefined name, because EnableDefaultCompileItems is
+      off and nothing else picks the generated file up.
+    -->
+    <Compile Include="obj/MainWindow.g.cs" Condition="Exists('obj/MainWindow.g.cs')" />
   </ItemGroup>
 
   <ItemGroup>

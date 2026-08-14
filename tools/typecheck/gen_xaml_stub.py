@@ -40,6 +40,7 @@ WPF_TYPES = {
     "TreeView": "System.Windows.Controls.TreeView",
     "ProgressBar": "System.Windows.Controls.ProgressBar",
     "ScrollViewer": "System.Windows.Controls.ScrollViewer",
+    "ItemsControl": "System.Windows.Controls.ItemsControl",
     "ListBox": "System.Windows.Controls.ListBox",
     "ListView": "System.Windows.Controls.ListView",
     "DataGrid": "System.Windows.Controls.DataGrid",

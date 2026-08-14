@@ -24,9 +24,17 @@
     <Compile Include="LevelNameTests.cs" />
     <Compile Include="QrEncoderTests.cs" />
     <Compile Include="MarkerPageTests.cs" />
+    <Compile Include="TransferTests.cs" />
+    <Compile Include="CaptureTests.cs" />
     <Compile Include="../../PIXMYD-Nav/Core/Points/PointSet.cs" />
     <Compile Include="../../PIXMYD-Nav/Core/Points/LevelName.cs" />
     <Compile Include="../../PIXMYD-Nav/Core/Markers/QrEncoder.cs" />
     <Compile Include="../../PIXMYD-Nav/Core/Markers/MarkerPage.cs" />
+    <Compile Include="../../PIXMYD-Nav/Core/Markers/QrRender.cs" />
+    <Compile Include="../../PIXMYD-Nav/Core/Json/JsonReader.cs" />
+    <Compile Include="../../PIXMYD-Nav/Core/Transfer/TransferTicket.cs" />
+    <Compile Include="../../PIXMYD-Nav/Core/Transfer/TransferManifest.cs" />
+    <Compile Include="../../PIXMYD-Nav/Core/Capture/RigidSolve.cs" />
+    <Compile Include="../../PIXMYD-Nav/Core/Capture/CaptureFile.cs" />
   </ItemGroup>
 </Project>

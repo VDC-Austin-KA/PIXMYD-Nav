@@ -11,6 +11,8 @@ namespace PIXMYD_Nav
             failures += LevelNameTests.Run();
             failures += QrEncoderTests.Run();
             failures += MarkerPageTests.Run();
+            failures += TransferTests.Run();
+            failures += CaptureTests.Run();
 
             Console.WriteLine(failures == 0 ? "ALL TESTS PASSED" : failures + " TEST(S) FAILED");
             return failures == 0 ? 0 : 1;
