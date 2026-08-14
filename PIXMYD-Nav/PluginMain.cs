@@ -13,11 +13,12 @@ namespace PIXMYD_Nav
     /// Export, AR Model Export. It is the bridge between the Navisworks model and
     /// the PIXMYD phone app.
     ///
-    /// Only registration is wired up so far — the pure-logic layers (point set /
-    /// JSON writer, level-name normalisation, QR encoder, marker page HTML) are
-    /// implemented and offline-tested under Core/. The Navisworks-touching tool
-    /// windows (viewpoint/image capture, AR bounding-box export, ribbon tab) are
-    /// separate, deferred work — see docs/work-orders/pixmy4d-nav.md tasks P3/P4.
+    /// The pure-logic layers (point set / JSON writer, level-name normalisation,
+    /// QR encoder, marker page HTML) live in Core/ and are offline-tested under
+    /// tools/writer-tests. This window owns the Navisworks-facing work: capturing
+    /// the selection as points, capturing the viewport for photos (no managed
+    /// screenshot API exists — GDI capture, see Core/NavBridge/ViewportCapture.cs),
+    /// and the AR bounding-box export.
     /// </summary>
     [Plugin("PIXMYD-Nav",
         "ACLP_VDC",
@@ -39,11 +40,21 @@ namespace PIXMYD_Nav
                     return 0;
                 }
 
-                MessageBox.Show(
-                    "PIXMYD-Nav tool windows (Points, Field Marker Export, AR Model Export) " +
-                    "are not yet wired up. The pure-logic layers behind them are implemented " +
-                    "and covered by tools/writer-tests.",
-                    "PIXMYD-Nav", MessageBoxButton.OK, MessageBoxImage.Information);
+                var window = new MainWindow();
+
+                // Parenting to the Navisworks main window keeps the dialog on top and
+                // stops it being lost behind the application.
+                try
+                {
+                    var helper = new System.Windows.Interop.WindowInteropHelper(window);
+                    helper.Owner = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
+                }
+                catch (Exception)
+                {
+                    // A parentless dialog still works; never block the export on this.
+                }
+
+                window.ShowDialog();
                 return 0;
             }
             catch (Exception ex)
