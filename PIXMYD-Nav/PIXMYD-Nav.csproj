@@ -131,6 +131,15 @@
     <Compile Include="Core\Transfer\TransferServer.cs" />
     <Compile Include="Core\Capture\RigidSolve.cs" />
     <Compile Include="Core\Capture\CaptureFile.cs" />
+    <Compile Include="Core\Capture\GravitySolve.cs" />
+    <Compile Include="Core\Capture\TransformMath.cs" />
+    <Compile Include="Core\Points\SnapSolver.cs" />
+    <Compile Include="Core\Points\PointSetReader.cs" />
+    <Compile Include="Core\Markers\MarkerGeometry.cs" />
+    <Compile Include="Core\Workspace\PixmydWorkspace.cs" />
+    <Compile Include="Core\NavBridge\PrimitiveHarvester.cs" />
+    <Compile Include="Core\NavBridge\PointPicker.cs" />
+    <Compile Include="Core\NavBridge\ModelPlacer.cs" />
     <Compile Include="MainWindow.xaml.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>

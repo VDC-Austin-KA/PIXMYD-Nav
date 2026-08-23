@@ -4,31 +4,43 @@ using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Media.Imaging;
+using Autodesk.Navisworks.Api;
 using PIXMYD_Nav.Core.Capture;
 using PIXMYD_Nav.Core.Markers;
+using PIXMYD_Nav.Core.NavBridge;
 using PIXMYD_Nav.Core.Points;
 using PIXMYD_Nav.Core.Transfer;
+using PIXMYD_Nav.Core.Workspace;
 
 namespace PIXMYD_Nav
 {
     /// <summary>
-    /// The Transfer tab: show a pairing code, serve the export over the local
-    /// network, and take a scan back.
+    /// The Transfer tab: show a pairing code, serve EXPORT over the local
+    /// network, take a scan back into IMPORT, and place it.
     ///
     /// A separate partial rather than more of MainWindow.xaml.cs, per RULES.md
-    /// section 1 -- the default is additive, and the existing code-behind is not
-    /// changed at all by this feature.
+    /// section 1. Everything here is UI and lifetime. The protocol lives in
+    /// Core/Transfer, the capture maths in Core/Capture, the placement in
+    /// Core/NavBridge, and all of those are covered by tools/writer-tests. This
+    /// file is the part that cannot be tested offline, so it is kept to wiring.
     ///
-    /// Everything here is UI and lifetime. The protocol lives in Core/Transfer,
-    /// the capture maths in Core/Capture, and both are covered by
-    /// tools/writer-tests. This file is the part that cannot be tested offline,
-    /// so it is kept to wiring.
+    /// ## What changed
+    ///
+    /// Arriving captures used to land in %TEMP%\PIXMYD-Nav-inbox-&lt;stamp&gt;.
+    /// They now land in the workspace's IMPORT folder, one dated directory per
+    /// arrival, beside the EXPORT folder they were taken against.
+    ///
+    /// And placing a capture used to write a matrix to a text file and explain
+    /// what the user would have to do by hand. It now appends the mesh and sets
+    /// its transform -- <c>Document.AppendFile</c> plus
+    /// <c>DocumentModels.SetModelUnitsAndTransform</c>, which between them are
+    /// the geometry-authoring path the managed API does have. The text file is
+    /// still written, because a transform somebody can read is worth keeping.
     /// </summary>
     public partial class MainWindow
     {
-        private const string SettingsTransferFolder = "TransferFolder";
         private static readonly TimeSpan SessionLifetime = TimeSpan.FromMinutes(15);
-        private const long MaxUploadBytes = 512L * 1024 * 1024;
+        private const long MaxUploadBytes = 1024L * 1024 * 1024;
 
         private TransferServer _transfer;
         private string _pendingCaptureFolder;
@@ -43,35 +55,28 @@ namespace PIXMYD_Nav
                 return;
             }
 
-            string folder = TransferFolderBox.Text != null ? TransferFolderBox.Text.Trim() : "";
-            bool acceptsUpload = TransferUploadCheck.IsChecked == true;
+            PixmydWorkspace workspace = Workspace();
+            if (workspace == null) return;
 
-            TransferOffer offer = null;
-            if (!string.IsNullOrEmpty(folder) && Directory.Exists(folder))
-            {
-                offer = BuildOffer(folder);
-            }
+            bool acceptsUpload = TransferUploadCheck.IsChecked == true;
+            TransferOffer offer = BuildOffer(workspace.Export);
 
             if (offer == null && !acceptsUpload)
             {
                 TransferStatusText.Text =
-                    "Pick a folder that holds a points.json or an ar-model.json, or tick " +
-                    "\"Accept a scan coming back\". A session that offers nothing and accepts " +
-                    "nothing is not worth showing a code for.";
+                    "EXPORT holds no points.json or ar-model.json, and \"Accept a scan coming back\" " +
+                    "is off. A session that offers nothing and accepts nothing is not worth showing " +
+                    "a code for — export something first, or tick the box.";
                 return;
             }
 
-            string inbox = Path.Combine(
-                Path.GetTempPath(),
-                "PIXMYD-Nav-inbox-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture));
-
             try
             {
-                Directory.CreateDirectory(inbox);
+                string inbox = workspace.NewImportFolder("", DateTime.UtcNow);
 
                 _transfer = new TransferServer(
                     offer,
-                    folder,
+                    workspace.Export,
                     inbox,
                     acceptsUpload,
                     MaxUploadBytes,
@@ -80,6 +85,7 @@ namespace PIXMYD_Nav
 
                 _transfer.Activity += OnTransferActivity;
                 _transfer.CaptureCommitted += OnCaptureCommitted;
+                _transfer.Progress += OnTransferProgress;
 
                 TransferTicket ticket = _transfer.Start(SessionLifetime);
                 ShowTicket(ticket);
@@ -89,10 +95,8 @@ namespace PIXMYD_Nav
 
                 TransferStatusText.Text = offer == null
                     ? "Waiting for a scan. The session closes in 15 minutes or when this window closes."
-                    : "Offering " + offer.Files.Count + " file(s). The session closes in 15 minutes " +
-                      "or when this window closes.";
-
-                _settings[SettingsTransferFolder] = folder;
+                    : "Offering " + offer.Files.Count + " file(s) from EXPORT. The session closes in 15 " +
+                      "minutes or when this window closes.";
             }
             catch (Exception ex)
             {
@@ -100,7 +104,7 @@ namespace PIXMYD_Nav
                 // that refuses the bind. All of them mean the same thing to the
                 // user, and all of them leave the folder export working.
                 TransferStatusText.Text = ex.Message +
-                    "  You can still export to a folder and copy it to the phone.";
+                    "  You can still export to the folder and copy it to the phone.";
                 StopTransfer();
             }
         }
@@ -117,25 +121,30 @@ namespace PIXMYD_Nav
             {
                 _transfer.Activity -= OnTransferActivity;
                 _transfer.CaptureCommitted -= OnCaptureCommitted;
+                _transfer.Progress -= OnTransferProgress;
                 _transfer.Stop();
                 _transfer = null;
             }
             TransferQrImage.Source = null;
             TransferPayloadText.Text = "";
+            TransferProgressBar.Visibility = Visibility.Collapsed;
+            TransferProgressText.Text = "";
             TransferStartButton.IsEnabled = true;
             TransferStopButton.IsEnabled = false;
         }
 
         /// <summary>
-        /// Everything in the folder that the contract files reference, plus the
-        /// contract files themselves.
+        /// Everything in EXPORT that a phone can use.
         ///
         /// The whole folder rather than a filtered subset: the exports are
-        /// points.json plus its PNGs, and a guest that gets the JSON without the
-        /// photos has a point set that looks complete and is not.
+        /// points.json plus its PNGs plus, now, a mesh, and a guest that gets
+        /// the JSON without the photos has a point set that looks complete and
+        /// is not.
         /// </summary>
         private static TransferOffer BuildOffer(string folder)
         {
+            if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder)) return null;
+
             bool hasPoints = File.Exists(Path.Combine(folder, "points.json"));
             bool hasArModel = File.Exists(Path.Combine(folder, "ar-model.json"))
                            || File.Exists(Path.Combine(folder, "ar-bundle.json"));
@@ -143,14 +152,19 @@ namespace PIXMYD_Nav
 
             var offer = new TransferOffer();
             offer.Kind = TransferManifest.KindFor(hasPoints, hasArModel);
-            offer.Name = Path.GetFileName(folder.TrimEnd(Path.DirectorySeparatorChar));
+            // The workspace's own name, not "EXPORT" -- the phone shows this as
+            // the name of the thing it is about to download.
+            offer.Name = Path.GetFileName(Path.GetDirectoryName(folder.TrimEnd(Path.DirectorySeparatorChar)));
+            if (string.IsNullOrEmpty(offer.Name)) offer.Name = "PIXMYD export";
 
             foreach (string path in Directory.GetFiles(folder))
             {
                 string name = Path.GetFileName(path);
-                // markers.html is for a printer, not a phone, and it is the one
-                // file in the folder that can be large for no benefit here.
+                // markers.html is for a printer, not a phone. points-markers.dxf
+                // is for Navisworks and means nothing on a phone. Both are large
+                // for no benefit here.
                 if (string.Equals(name, "markers.html", StringComparison.OrdinalIgnoreCase)) continue;
+                if (string.Equals(name, MarkerDxf.FileName, StringComparison.OrdinalIgnoreCase)) continue;
                 if (!TransferManifest.IsSafeName(name)) continue;
                 offer.Files.Add(new TransferFileEntry(name, new FileInfo(path).Length));
             }
@@ -192,23 +206,113 @@ namespace PIXMYD_Nav
             }));
         }
 
+        /// <summary>
+        /// The bar. Bytes, not files -- see TransferProgress for why that
+        /// distinction is the whole point of this feature.
+        /// </summary>
+        private void OnTransferProgress(TransferProgress progress)
+        {
+            Dispatcher.BeginInvoke(new Action(delegate
+            {
+                TransferProgressBar.Visibility = Visibility.Visible;
+                TransferProgressBar.Value = progress.Fraction;
+                TransferProgressText.Text = progress.Describe();
+            }));
+        }
+
         private void OnCaptureCommitted(string inbox)
         {
             Dispatcher.BeginInvoke(new Action(delegate
             {
-                _pendingCaptureFolder = inbox;
-                CaptureReviewButton.IsEnabled = true;
+                string settled = SettleImportFolder(inbox);
+                _pendingCaptureFolder = settled;
+
+                // The session keeps running, so give it somewhere else to write:
+                // a second scan must not overwrite the first one's capture.json.
+                if (_transfer != null && _workspace != null)
+                {
+                    try { _transfer.InboxDirectory = _workspace.NewImportFolder("", DateTime.UtcNow); }
+                    catch (Exception) { }
+                }
+
+                RefreshImportList();
+                SelectImport(settled);
                 DescribePendingCapture();
+                TransferProgressText.Text = "A scan arrived and is waiting for review.";
             }));
         }
 
-        // MARK: - The return leg
+        /// <summary>
+        /// Rename a freshly filled inbox to carry the capture's id.
+        ///
+        /// The folder has to exist before the first byte arrives and the id is
+        /// only known once capture.json is in it, so the name is completed here
+        /// rather than guessed earlier. A rename that fails is not worth
+        /// reporting -- the folder is still correct, just less readable.
+        /// </summary>
+        private string SettleImportFolder(string inbox)
+        {
+            if (_workspace == null || string.IsNullOrEmpty(inbox)) return inbox;
+            try
+            {
+                string json = Path.Combine(inbox, "capture.json");
+                if (!File.Exists(json)) return inbox;
+
+                CaptureFile capture = CaptureReader.Read(File.ReadAllText(json));
+                string suffix = PixmydWorkspace.ShortId(capture.CaptureId);
+                if (suffix.Length == 0) return inbox;
+
+                string parent = Path.GetDirectoryName(inbox);
+                string settled = Path.Combine(parent, Path.GetFileName(inbox) + "-" + suffix);
+                if (Directory.Exists(settled)) return inbox;
+
+                Directory.Move(inbox, settled);
+                return settled;
+            }
+            catch (Exception)
+            {
+                return inbox;
+            }
+        }
+
+        // MARK: - The IMPORT list
+
+        private void RefreshImportList()
+        {
+            var rows = new List<string>();
+            if (_workspace != null)
+                foreach (string folder in _workspace.ImportFolders())
+                    rows.Add(Path.GetFileName(folder));
+
+            ImportList.ItemsSource = rows;
+            if (rows.Count == 0)
+            {
+                CaptureSummaryText.Text = "Nothing yet.";
+                CaptureReviewButton.IsEnabled = false;
+            }
+        }
+
+        private void SelectImport(string folder)
+        {
+            if (_workspace == null || string.IsNullOrEmpty(folder)) return;
+            ImportList.SelectedItem = Path.GetFileName(folder);
+        }
+
+        private void OnImportSelected(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+        {
+            string name = ImportList.SelectedItem as string;
+            if (name == null || _workspace == null) return;
+            _pendingCaptureFolder = Path.Combine(_workspace.Import, name);
+            CaptureReviewButton.IsEnabled = true;
+            DescribePendingCapture();
+        }
 
         private void OnOpenCaptureFolder(object sender, RoutedEventArgs e)
         {
             using (var dialog = new System.Windows.Forms.FolderBrowserDialog())
             {
                 dialog.Description = "Pick the folder holding capture.json";
+                if (_workspace != null) dialog.SelectedPath = _workspace.Import;
                 if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
                 _pendingCaptureFolder = dialog.SelectedPath;
             }
@@ -243,7 +347,66 @@ namespace PIXMYD_Nav
                     .Append(" raw observation(s) came with it, which can be solved here.");
             }
 
+            if (capture.HasGeometry)
+            {
+                text.Append("  Mesh: ").Append(capture.GeometryFile);
+                text.Append(capture.GeometryIsPlaced ? " (already in model coordinates)" : " (capture frame)");
+            }
+
+            ReadPointSet fromPhone = ReadPhonePoints();
+            SeedPointsButton.IsEnabled = fromPhone != null && fromPhone.Points.Count > 0;
+            if (fromPhone != null && fromPhone.Points.Count > 0)
+                text.Append("  ").Append(PointSetReader.Describe(fromPhone));
+
             CaptureSummaryText.Text = text.ToString();
+        }
+
+        /// <summary>
+        /// The points the phone placed, when this arrival carries any.
+        ///
+        /// Read straight off the folder rather than out of capture.json: the
+        /// file is a points.json in the shape this plugin already writes, which
+        /// is the whole reason the phone writes it that way.
+        /// </summary>
+        private ReadPointSet ReadPhonePoints()
+        {
+            if (string.IsNullOrEmpty(_pendingCaptureFolder)) return null;
+            string path = Path.Combine(_pendingCaptureFolder, "points.json");
+            if (!File.Exists(path)) return null;
+
+            try
+            {
+                return PointSetReader.Read(File.ReadAllText(path));
+            }
+            catch (Exception ex)
+            {
+                OnTransferActivity("Could not read the phone's points.json: " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Put the phone's ids into the Points tab so they can be placed on the
+        /// model, one click each.
+        ///
+        /// This is the half of the round trip that did not exist. Points could
+        /// only ever start at the workstation; now a crew can place them on
+        /// site, and this is where those names arrive.
+        /// </summary>
+        private void OnSeedPhonePoints(object sender, RoutedEventArgs e)
+        {
+            ReadPointSet fromPhone = ReadPhonePoints();
+            if (fromPhone == null || fromPhone.Points.Count == 0)
+            {
+                CaptureSummaryText.Text = "This arrival carries no points.json, so there are no ids to place.";
+                return;
+            }
+
+            int added = SeedExpectedPoints(fromPhone);
+            StatusText.Text = added == 0
+                ? "Every id from the phone is already in the list."
+                : "Added " + added + " id(s) from the phone. Turn on Pick points and click each one " +
+                  "on the model — the list fills in order.";
         }
 
         private CaptureFile ReadPendingCapture()
@@ -274,6 +437,8 @@ namespace PIXMYD_Nav
             }
         }
 
+        // MARK: - The return leg
+
         /// <summary>
         /// Show the fit and ask before anything is placed.
         ///
@@ -299,10 +464,9 @@ namespace PIXMYD_Nav
                 if (positions == null)
                 {
                     MessageBox.Show(this,
-                        "This capture has no solution, and the point set it names (" +
-                        Short(capture.PointSetId) + ") is not the one loaded in the Points tab, so " +
-                        "there is nothing to solve it against.\n\nCapture the same point set again, " +
-                        "or open the export it came from.",
+                        "This capture has no solution, and there are no points in the Points tab to " +
+                        "solve it against.\n\nOpen the point set it was taken against (" +
+                        Short(capture.PointSetId) + "), or place the same points again.",
                         "Cannot place this capture", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
@@ -310,7 +474,9 @@ namespace PIXMYD_Nav
                 try
                 {
                     solution = CaptureReader.SolveLocally(capture, positions);
-                    provenanceOfSolution = "solved here from the raw observations";
+                    provenanceOfSolution = solution.VerticalHeld
+                        ? "solved here from the raw observations, with the vertical held from gravity"
+                        : "solved here from the raw observations";
                 }
                 catch (Exception ex)
                 {
@@ -322,6 +488,7 @@ namespace PIXMYD_Nav
 
             AccuracyGrade grade = AccuracyBands.Classify(solution.RmsError);
             double[] placement = CapturePlacement.ModelWorldMatrix(solution.Matrix, capture.AppliedOffset);
+            int pairCount = capture.Correspondences != null ? capture.Correspondences.Count : 0;
 
             var message = new System.Text.StringBuilder();
             message.Append("Capture ").Append(Short(capture.CaptureId));
@@ -330,6 +497,7 @@ namespace PIXMYD_Nav
             message.AppendLine().AppendLine();
 
             message.Append("Fit (").Append(provenanceOfSolution).AppendLine("):");
+            message.Append("  Points      ").AppendLine(pairCount.ToString(CultureInfo.InvariantCulture));
             message.Append("  RMS error   ").AppendLine(Millimetres(solution.RmsError));
             message.Append("  Max error   ").AppendLine(Millimetres(solution.MaxError));
             message.Append("  Grade       ").Append(grade.Label).Append("  (").Append(grade.Band).AppendLine(")");
@@ -339,6 +507,15 @@ namespace PIXMYD_Nav
                     : solution.OutlierPointIds.Length + " (" + string.Join(", ", solution.OutlierPointIds) + ")");
             message.AppendLine();
             message.AppendLine(grade.Guidance);
+
+            // A two-point fit reports near-zero error whether it is right or
+            // wrong. Saying so beside the number is the difference between a
+            // reassuring statistic and an honest one.
+            if (pairCount > 0 && pairCount <= 3)
+            {
+                message.AppendLine();
+                message.AppendLine(GravitySolve.RedundancyGuidance(pairCount));
+            }
             message.AppendLine();
 
             message.Append("Geometry: ");
@@ -346,7 +523,12 @@ namespace PIXMYD_Nav
             {
                 string geometryPath = Path.Combine(_pendingCaptureFolder, capture.GeometryFile);
                 message.Append(capture.GeometryFile);
-                message.Append(File.Exists(geometryPath) ? " (present)" : " (MISSING from the folder)");
+                if (!File.Exists(geometryPath)) message.Append(" (MISSING from the folder)");
+                else if (!capture.GeometryIsAppendable)
+                    message.Append(" (Navisworks cannot append this format — the transform will be written instead)");
+                else message.Append(capture.GeometryIsPlaced
+                    ? " (already in model coordinates)"
+                    : " (capture frame — it will be placed by the transform below)");
             }
             else
             {
@@ -392,18 +574,114 @@ namespace PIXMYD_Nav
         /// <summary>
         /// Where the mesh actually enters the model.
         ///
-        /// Not implemented: the managed Navisworks API has no geometry authoring
-        /// surface -- a document is built from converted files, and there is no
-        /// AddGeometry or AppendMesh to call. Placing a mesh means writing it as
-        /// a file Navisworks can append and appending it, which is NavEx's job
-        /// and a separate piece of work.
+        /// Append the file, then set the appended model's transform. Both halves
+        /// are documented managed API, and together they are the geometry path
+        /// the earlier version of this plugin said did not exist -- it was right
+        /// that a document cannot be authored into, and wrong that this meant
+        /// nothing could be placed.
         ///
-        /// So this does the honest thing: writes the transform beside the mesh
-        /// and tells the user exactly what to do with it. A button that silently
-        /// did nothing, or that placed the mesh at the origin, would be worse
-        /// than one that says what it cannot do.
+        /// The transform is decomposed to an axis, an angle and a translation
+        /// before it crosses the boundary, and its translation is converted from
+        /// the contract's metres into the document's own units. Getting that
+        /// second conversion wrong on a model drawn in millimetres puts the scan
+        /// a kilometre away, which at least is obvious; getting it wrong on one
+        /// drawn in feet puts it three metres away, which is not.
         /// </summary>
         private void PlaceCapture(CaptureFile capture, CaptureSolution solution, double[] placement)
+        {
+            string manifest = WritePlacementFile(capture, solution, placement);
+
+            if (!capture.HasGeometry)
+            {
+                MessageBox.Show(this,
+                    "This capture carries no mesh, so there is nothing to place. The alignment is " +
+                    "written to:\n\n" + manifest,
+                    "Nothing to place", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            string geometryPath = Path.Combine(_pendingCaptureFolder, capture.GeometryFile);
+            if (!File.Exists(geometryPath))
+            {
+                MessageBox.Show(this,
+                    capture.GeometryFile + " is named by capture.json but is not in the folder, so the " +
+                    "transfer did not finish. Send the scan again.",
+                    "The mesh is missing", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            if (!capture.GeometryIsAppendable)
+            {
+                MessageBox.Show(this,
+                    "Navisworks does not read " + Path.GetExtension(capture.GeometryFile) + ", so this mesh " +
+                    "cannot be appended. Newer PIXMYD builds send FBX, which it does read.\n\n" +
+                    "The alignment is written to:\n\n" + manifest,
+                    "Cannot append this format", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            ModelPlacer.AppendResult appended = ModelPlacer.Append(_document, geometryPath);
+            if (!appended.Ok || appended.Model == null)
+            {
+                MessageBox.Show(this,
+                    appended.Message + "\n\nThe alignment is written to:\n\n" + manifest,
+                    "The scan could not be appended", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            // A mesh the phone already put in model coordinates needs no
+            // transform. Applying one would move it exactly as far past the
+            // model as it was short of it.
+            if (capture.GeometryIsPlaced)
+            {
+                OnTransferActivity("Placed " + capture.GeometryFile + " (already in model coordinates).");
+                StatusText.Text = "Scan appended in place. " + AccuracyBands.Classify(solution.RmsError).Label + " fit.";
+                return;
+            }
+
+            // Two conversions, and both of them are silent when wrong.
+            //
+            // The mesh arrived as an FBX declaring Y as up, and Navisworks' own
+            // reader turned it into the document's Z-up frame on the way in --
+            // so the solution, which maps the capture's ARKit frame, has to be
+            // composed with the inverse of that turn.
+            //
+            // And the translation is in the contract's metres while the
+            // document may be in millimetres or feet. Getting that wrong on a
+            // millimetre model puts the scan a kilometre away, which at least
+            // is obvious; on a model drawn in feet it puts it three metres
+            // away, which is not.
+            string upAxis = "Z";
+            try { upAxis = SceneReader.Capture(_document).UpAxis; } catch (Exception) { }
+
+            double toDocument = _scaleToMeters == 0 ? 1.0 : 1.0 / _scaleToMeters;
+            double[] fromImportedFbx = TransformMath.Multiply(placement, TransformMath.FbxCaptureBasis(upAxis));
+            double[] inDocumentUnits = TransformMath.WithTranslationScaled(fromImportedFbx, toDocument);
+
+            string error;
+            if (!ModelPlacer.TryTransform(_document, appended.Model, inDocumentUnits, out error))
+            {
+                MessageBox.Show(this,
+                    "The scan was appended but could not be moved into place:\n\n" + error +
+                    "\n\nThe transform is written to:\n\n" + manifest,
+                    "Appended, not placed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            OnTransferActivity("Placed " + capture.GeometryFile + " at RMS " + Millimetres(solution.RmsError) + ".");
+            StatusText.Text =
+                "Scan appended and placed — " + AccuracyBands.Classify(solution.RmsError).Label +
+                " fit at " + Millimetres(solution.RmsError) + ".";
+        }
+
+        /// <summary>
+        /// The transform, in a file a person can read.
+        ///
+        /// Kept even though the mesh is placed automatically now: an alignment
+        /// somebody can check, quote in an RFI, or apply in another tool is
+        /// worth more than the twelve lines it costs.
+        /// </summary>
+        private string WritePlacementFile(CaptureFile capture, CaptureSolution solution, double[] placement)
         {
             try
             {
@@ -412,37 +690,35 @@ namespace PIXMYD_Nav
                 text.AppendLine("PIXMYD-Nav placement for capture " + capture.CaptureId);
                 text.AppendLine("Written " + TransferManifest.Iso8601(DateTime.UtcNow));
                 text.AppendLine();
-                text.AppendLine("Mesh file:  " + capture.GeometryFile);
+                text.AppendLine("Mesh file:  " + capture.GeometryFile + "  (" + capture.GeometryFrame + " frame)");
                 text.AppendLine("Point set:  " + capture.PointSetId);
+                text.AppendLine("Points:     " +
+                    (capture.Correspondences == null ? 0 : capture.Correspondences.Count));
                 text.AppendLine("RMS error:  " + Millimetres(solution.RmsError));
                 text.AppendLine("Grade:      " + AccuracyBands.Classify(solution.RmsError).Band);
+                text.AppendLine("Vertical:   " + (solution.VerticalHeld ? "held from gravity" : "fitted"));
                 text.AppendLine();
-                text.AppendLine("Column-major 4x4, capture frame to model world coordinates");
+                text.AppendLine("Column-major 4x4, capture frame to model world coordinates, in metres");
                 text.AppendLine("(solution.matrix with the point set's appliedOffset folded into the");
                 text.AppendLine("translation column):");
-                for (int column = 0; column < 4; column++)
+                if (placement != null)
                 {
-                    text.Append("  ");
-                    for (int row = 0; row < 4; row++)
-                        text.Append(placement[column * 4 + row].ToString("R", CultureInfo.InvariantCulture)).Append('\t');
-                    text.AppendLine();
+                    for (int column = 0; column < 4; column++)
+                    {
+                        text.Append("  ");
+                        for (int row = 0; row < 4; row++)
+                            text.Append(placement[column * 4 + row].ToString("R", CultureInfo.InvariantCulture)).Append('\t');
+                        text.AppendLine();
+                    }
                 }
 
                 File.WriteAllText(manifest, text.ToString());
-
-                MessageBox.Show(this,
-                    "The placement transform is written to:\n\n" + manifest + "\n\n" +
-                    "The managed Navisworks API cannot author geometry into an open document, so " +
-                    "the mesh has to be appended as a file. Transform " + capture.GeometryFile +
-                    " by the matrix above, then append it to this model.",
-                    "Placement written", MessageBoxButton.OK, MessageBoxImage.Information);
-
-                OnTransferActivity("Wrote placement.txt for capture " + Short(capture.CaptureId));
+                return manifest;
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, ex.Message, "Could not write the placement",
-                    MessageBoxButton.OK, MessageBoxImage.Error);
+                OnTransferActivity("Could not write placement.txt: " + ex.Message);
+                return "(placement.txt could not be written)";
             }
         }
 
@@ -461,20 +737,14 @@ namespace PIXMYD_Nav
             var positions = new Dictionary<string, double[]>(StringComparer.Ordinal);
             foreach (PointRow row in _points)
             {
+                // A row that has not been placed has no coordinate. Pairing
+                // against (0, 0, 0) would drag the whole solve to the origin
+                // and report an RMS that looks like a bad scan.
+                if (!row.IsPlaced) continue;
                 Vec3 p = row.Record.Position;
                 positions[row.Id] = new double[] { p.X, p.Y, p.Z };
             }
             return positions.Count == 0 ? null : positions;
-        }
-
-        private void OnBrowseTransferFolder(object sender, RoutedEventArgs e)
-        {
-            using (var dialog = new System.Windows.Forms.FolderBrowserDialog())
-            {
-                dialog.Description = "Pick the exported folder to share";
-                if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
-                    TransferFolderBox.Text = dialog.SelectedPath;
-            }
         }
 
         /// <summary>

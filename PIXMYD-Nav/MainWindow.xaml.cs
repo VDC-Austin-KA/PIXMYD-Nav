@@ -7,26 +7,57 @@ using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using Autodesk.Navisworks.Api;
 using PIXMYD_Nav.Core;
 using PIXMYD_Nav.Core.Ar;
 using PIXMYD_Nav.Core.Markers;
 using PIXMYD_Nav.Core.NavBridge;
 using PIXMYD_Nav.Core.Points;
+using PIXMYD_Nav.Core.Workspace;
 using NavApp = Autodesk.Navisworks.Api.Application;
 
 namespace PIXMYD_Nav
 {
+    /// <summary>
+    /// The window. Everything Navisworks-facing that is not worth its own file.
+    ///
+    /// ## What changed, and why
+    ///
+    /// The first version of this tab captured the current selection as points,
+    /// one per item, at each item's bounding-box centre. That is a fast thing
+    /// to write and it is not a control point: the centre of a column's extents
+    /// is inside the column, where nobody can put a tape. Points are now
+    /// *placed* -- the user clicks in the model and the pick is pulled onto the
+    /// nearest real corner, then edge, then face
+    /// (Core/Points/SnapSolver.cs over Core/NavBridge/PrimitiveHarvester.cs).
+    ///
+    /// The three output folders became one workspace with an EXPORT side and an
+    /// IMPORT side (Core/Workspace/PixmydWorkspace.cs), because the previous
+    /// arrangement put arriving captures in %TEMP% -- invisible from the folder
+    /// the user was told to look in, and swept up by Windows.
+    /// </summary>
     public partial class MainWindow : Window
     {
-        private const string SettingsMarkerFolder = "MarkerFolder";
-        private const string SettingsArFolder = "ArFolder";
+        private const string SettingsWorkspace = "Workspace";
         private const string SettingsSetName = "SetName";
+        private const string SettingsSnapMode = "SnapMode";
+        private const string SettingsSnapRadiusMm = "SnapRadiusMm";
+        private const string SettingsMarkerShape = "MarkerShape";
+        private const string SettingsMarkerSizeMm = "MarkerSizeMm";
+
+        // Pre-workspace keys, read once so an existing install keeps its folder.
+        private const string LegacyMarkerFolder = "MarkerFolder";
 
         private Document _document;
         private double _scaleToMeters = 1.0;
         private Units _sourceUnits = Units.Meters;
         private bool _initialized;
+
+        private PixmydWorkspace _workspace;
+        private readonly PointPicker _picker = new PointPicker();
+        private readonly ModelPlacer _placer = new ModelPlacer();
+        private Model _markerModel;
 
         private readonly ObservableCollection<PointRow> _points = new ObservableCollection<PointRow>();
         private readonly Dictionary<string, string> _settings = new Dictionary<string, string>(
@@ -61,42 +92,106 @@ namespace PIXMYD_Nav
             catch (Exception) { _scaleToMeters = 1.0; }
 
             LoadSettingsIntoUi();
+
+            _picker.Picked += OnPicked;
+            _picker.Stopped += OnPickingStopped;
+
             _initialized = true;
         }
 
         private void OnWindowClosing(object sender, CancelEventArgs e)
         {
             if (!_initialized) return;
+            _picker.Picked -= OnPicked;
+            _picker.Stopped -= OnPickingStopped;
+            _picker.Dispose();
+
             SaveUiIntoSettings();
             SettingsStore.Save(_settings);
         }
 
-        // ── Settings ──────────────────────────────────────────────────────────
+        // ── Settings and workspace ────────────────────────────────────────────
 
         private void LoadSettingsIntoUi()
         {
             var loaded = SettingsStore.Load();
             foreach (var kvp in loaded) _settings[kvp.Key] = kvp.Value;
 
-            string markerFolder = Str(_settings, SettingsMarkerFolder, "");
-            string arFolder = Str(_settings, SettingsArFolder, "");
-            if (string.IsNullOrWhiteSpace(markerFolder))
-                markerFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                    "PIXMYD-Nav");
-            if (string.IsNullOrWhiteSpace(arFolder)) arFolder = markerFolder;
-            _settings[SettingsMarkerFolder] = markerFolder;
-            _settings[SettingsArFolder] = arFolder;
+            string root = Str(_settings, SettingsWorkspace, "");
+            // An install that predates the workspace kept its folder under the
+            // marker key. Inheriting it means an upgrade finds the same files
+            // rather than a new empty folder somewhere else.
+            if (string.IsNullOrWhiteSpace(root)) root = Str(_settings, LegacyMarkerFolder, "");
+            if (string.IsNullOrWhiteSpace(root)) root = PixmydWorkspace.DefaultRoot();
 
-            MarkerFolderBox.Text = markerFolder;
-            ArFolderBox.Text = arFolder;
+            WorkspaceBox.Text = root;
             SetNameBox.Text = Str(_settings, SettingsSetName, "");
+            SnapModeBox.SelectedIndex = Int(_settings, SettingsSnapMode, 0, 0, 3);
+            SnapRadiusBox.Text = Str(_settings, SettingsSnapRadiusMm, "50");
+            MarkerShapeBox.SelectedIndex = Int(_settings, SettingsMarkerShape, 0, 0, 1);
+            MarkerSizeBox.Text = Str(_settings, SettingsMarkerSizeMm, "76.2");
+
+            UseWorkspace(root);
         }
 
         private void SaveUiIntoSettings()
         {
-            _settings[SettingsMarkerFolder] = MarkerFolderBox.Text.Trim();
-            _settings[SettingsArFolder] = ArFolderBox.Text.Trim();
+            _settings[SettingsWorkspace] = WorkspaceBox.Text.Trim();
             _settings[SettingsSetName] = SetNameBox.Text.Trim();
+            _settings[SettingsSnapMode] = SnapModeBox.SelectedIndex.ToString(CultureInfo.InvariantCulture);
+            _settings[SettingsSnapRadiusMm] = SnapRadiusBox.Text.Trim();
+            _settings[SettingsMarkerShape] = MarkerShapeBox.SelectedIndex.ToString(CultureInfo.InvariantCulture);
+            _settings[SettingsMarkerSizeMm] = MarkerSizeBox.Text.Trim();
+        }
+
+        /// <summary>
+        /// Point everything at a root folder, creating the two sides and moving
+        /// any loose export from an older layout into EXPORT.
+        /// </summary>
+        private void UseWorkspace(string root)
+        {
+            try
+            {
+                _workspace = new PixmydWorkspace(root).EnsureCreated();
+                List<string> migrated = _workspace.MigrateLooseFiles();
+                if (migrated.Count > 0)
+                    StatusText.Text = "Moved " + migrated.Count + " file(s) from an older layout into EXPORT.";
+            }
+            catch (Exception ex)
+            {
+                _workspace = null;
+                StatusText.Text = "That folder cannot be used: " + ex.Message;
+            }
+
+            RefreshExportList();
+            RefreshImportList();
+        }
+
+        private void OnBrowseWorkspace(object sender, RoutedEventArgs e)
+        {
+            using (var dialog = new System.Windows.Forms.FolderBrowserDialog())
+            {
+                dialog.Description = "Pick the PIXMYD folder for this model";
+                if (!string.IsNullOrWhiteSpace(WorkspaceBox.Text)) dialog.SelectedPath = WorkspaceBox.Text.Trim();
+                if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
+                WorkspaceBox.Text = dialog.SelectedPath;
+            }
+            UseWorkspace(WorkspaceBox.Text.Trim());
+        }
+
+        /// <summary>The workspace as it stands, or null with the reason on screen.</summary>
+        private PixmydWorkspace Workspace()
+        {
+            string wanted = WorkspaceBox.Text != null ? WorkspaceBox.Text.Trim() : "";
+            if (string.IsNullOrWhiteSpace(wanted))
+            {
+                StatusText.Text = "Pick a PIXMYD folder first.";
+                return null;
+            }
+            if (_workspace == null || !string.Equals(_workspace.Root, wanted.TrimEnd(Path.DirectorySeparatorChar),
+                    StringComparison.OrdinalIgnoreCase))
+                UseWorkspace(wanted);
+            return _workspace;
         }
 
         private static string Str(Dictionary<string, string> values, string key, string fallback)
@@ -106,65 +201,182 @@ namespace PIXMYD_Nav
             return fallback;
         }
 
-        // ── Points ────────────────────────────────────────────────────────────
+        private static int Int(Dictionary<string, string> values, string key, int fallback, int low, int high)
+        {
+            string raw = Str(values, key, "");
+            int value;
+            if (!int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out value)) return fallback;
+            return value < low || value > high ? fallback : value;
+        }
 
-        private void OnCaptureSelection(object sender, RoutedEventArgs e)
+        // ── Placing points ────────────────────────────────────────────────────
+
+        private void OnTogglePicking(object sender, RoutedEventArgs e)
         {
             if (_document == null) return;
 
-            try
+            if (_picker.IsArmed)
             {
-                Selection selection = _document.CurrentSelection;
-                if (!selection.HasExplicitSelection)
-                {
-                    StatusText.Text = "Nothing selected in Navisworks — select items first.";
-                    return;
-                }
-
-                int added = 0;
-                foreach (ModelItem item in selection.ExplicitSelection)
-                {
-                    PointRecord rec = SceneReader.PointFromItem(_document, item, _scaleToMeters, NextPointId());
-                    if (string.IsNullOrEmpty(rec.Label)) rec.Label = rec.Id;
-                    _points.Add(new PointRow(rec));
-                    added++;
-                }
-
-                StatusText.Text = "Captured " + added + " point(s) from the selection.";
+                _picker.Disarm();
+                PickToggleButton.Content = "Pick points";
+                StatusText.Text = "Picking off.";
+                return;
             }
-            catch (Exception ex)
-            {
-                MessageBox.Show("Capture failed:" + Environment.NewLine + ex.Message,
-                    "PIXMYD-Nav", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
+
+            _picker.Arm(_document);
+            PickToggleButton.Content = "Stop picking";
+            StatusText.Text =
+                "Picking on — click in the model to place a point. Navisworks' own snapping runs first; " +
+                "each pick is then pulled onto the nearest " + SnapModeLabel() + ".";
         }
 
-        private void OnCaptureModel(object sender, RoutedEventArgs e)
+        private void OnPickingStopped(string reason)
         {
-            if (_document == null) return;
+            PickToggleButton.Content = "Pick points";
+            StatusText.Text = "Picking stopped: " + reason;
+        }
+
+        private void OnTakeCurrentPick(object sender, RoutedEventArgs e)
+        {
+            Point3D picked;
+            if (!_picker.TryTakeCurrent(_document, out picked))
+            {
+                StatusText.Text =
+                    "There is no measurement on screen to take. Use a measure tool to click a point first.";
+                return;
+            }
+            OnPicked(picked);
+        }
+
+        /// <summary>
+        /// A raw pick becomes a point: snapped onto real geometry, numbered, and
+        /// added to the list.
+        /// </summary>
+        private void OnPicked(Point3D picked)
+        {
+            if (picked == null || _document == null) return;
 
             try
             {
-                BoundingBox3D box = _document.GetBoundingBox(false);
-                if (box.IsEmpty) { StatusText.Text = "The model has no geometry bounding box."; return; }
+                double radiusMm = Double(SnapRadiusBox.Text, 50);
+                double radiusMetres = radiusMm / 1000.0;
+                // The bounding-box search runs in document units; the snap runs
+                // in metres, which is the frame every point is recorded in.
+                double radiusDocument = _scaleToMeters == 0 ? radiusMetres : radiusMetres / _scaleToMeters;
 
-                var rec = new PointRecord
+                var pick = new Vec3(picked.X * _scaleToMeters, picked.Y * _scaleToMeters, picked.Z * _scaleToMeters);
+
+                SnapResult snapped;
+                SnapMode wanted = (SnapMode)Math.Max(0, SnapModeBox.SelectedIndex);
+                if (wanted == SnapMode.Free)
                 {
-                    Id = NextPointId(),
-                    Label = "Model centre",
-                    Position = Scale(new Vec3(box.Center.X, box.Center.Y, box.Center.Z))
-                };
-                _points.Add(new PointRow(rec));
-                StatusText.Text = "Added a point at the model centre.";
+                    snapped = new SnapResult { Position = pick, Mode = SnapMode.Free, Snapped = false };
+                }
+                else
+                {
+                    ModelItemCollection near = PrimitiveHarvester.ItemsNear(
+                        _document, picked, radiusDocument, PrimitiveHarvester.DefaultItemBudget);
+                    MeshSoup soup = PrimitiveHarvester.Harvest(near, _scaleToMeters, 60000);
+                    snapped = SnapSolver.Snap(soup, pick, wanted, radiusMetres);
+                }
+
+                // A row the phone named and nobody has placed yet takes the
+                // pick before a new row is invented. That is the whole
+                // interaction when a scan came home with its own points: the
+                // list is a to-do list, and clicking works down it in order.
+                PointRow row = FirstExpected();
+                if (row != null)
+                {
+                    row.PlaceAt(snapped.Position, snapped);
+                }
+                else
+                {
+                    var record = new PointRecord { Id = NextPointId(), Position = snapped.Position };
+                    record.Label = record.Id;
+                    row = new PointRow(record, snapped);
+                    _points.Add(row);
+                }
+
+                PointList.SelectedItem = row;
+                PointList.ScrollIntoView(row);
+
+                int remaining = ExpectedCount();
+                StatusText.Text = "Placed " + row.Id + " at " + SceneReader.FormatVec(row.Record.Position) +
+                                  " (" + snapped.Describe() + ")." +
+                                  (remaining > 0
+                                      ? "  " + remaining + " more from the phone still to place."
+                                      : "");
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Capture failed:" + Environment.NewLine + ex.Message,
-                    "PIXMYD-Nav", MessageBoxButton.OK, MessageBoxImage.Error);
+                StatusText.Text = "That pick could not be placed: " + ex.Message;
             }
         }
 
-        private void OnClearPoints(object sender, RoutedEventArgs e) { _points.Clear(); }
+        /// <summary>The first row the phone named that has no coordinate yet.</summary>
+        private PointRow FirstExpected()
+        {
+            foreach (PointRow row in _points) if (!row.IsPlaced) return row;
+            return null;
+        }
+
+        private int ExpectedCount()
+        {
+            int count = 0;
+            foreach (PointRow row in _points) if (!row.IsPlaced) count++;
+            return count;
+        }
+
+        /// <summary>
+        /// Seed the list with the ids a phone placed, so they can be put on the
+        /// model one click each.
+        ///
+        /// Existing placed rows for the same ids are kept -- a coordinator who
+        /// has already put P001 on a column does not want it thrown away
+        /// because the same scan was reviewed twice.
+        /// </summary>
+        internal int SeedExpectedPoints(ReadPointSet fromPhone)
+        {
+            if (fromPhone == null) return 0;
+
+            var known = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            foreach (PointRow row in _points) known[row.Id] = true;
+
+            int added = 0;
+            foreach (ReadPoint point in fromPhone.Points)
+            {
+                if (known.ContainsKey(point.Id)) continue;
+                _points.Add(PointRow.Expected(point.Id, point.Label));
+                known[point.Id] = true;
+                added++;
+            }
+
+            if (added > 0)
+            {
+                Tabs.SelectedIndex = 0;
+                PointRow first = FirstExpected();
+                if (first != null) PointList.SelectedItem = first;
+            }
+            return added;
+        }
+
+        private string SnapModeLabel()
+        {
+            switch (Math.Max(0, SnapModeBox.SelectedIndex))
+            {
+                case 1: return "edge";
+                case 2: return "face";
+                case 3: return "nothing — the raw pick is kept";
+                default: return "corner";
+            }
+        }
+
+        private void OnClearPoints(object sender, RoutedEventArgs e)
+        {
+            _points.Clear();
+            _placer.ForgetMoves();
+            StatusText.Text = "Point list cleared.";
+        }
 
         private void OnRemoveSelected(object sender, RoutedEventArgs e)
         {
@@ -173,64 +385,242 @@ namespace PIXMYD_Nav
             foreach (PointRow row in doomed) _points.Remove(row);
         }
 
-        private void OnOpenOutputFolder(object sender, RoutedEventArgs e)
+        // ── The gizmo ─────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Move the selected points by a fixed step.
+        ///
+        /// The step is in millimetres and the axes are the model's, so this is
+        /// the instrument for "that column mark is 8 mm high", which is the
+        /// adjustment a drag gizmo is worst at.
+        /// </summary>
+        private void OnNudge(object sender, RoutedEventArgs e)
         {
-            string folder = WhatFolder();
-            try
+            var button = sender as Button;
+            if (button == null) return;
+            string tag = button.Tag as string;
+            if (string.IsNullOrEmpty(tag) || tag.Length < 2) return;
+
+            double step = Double(NudgeStepBox.Text, 5) / 1000.0;
+            if (tag[1] == '-') step = -step;
+
+            var moved = new List<PointRow>();
+            foreach (PointRow row in PointList.SelectedItems) moved.Add(row);
+            if (moved.Count == 0)
             {
-                Directory.CreateDirectory(folder);
-                Process.Start("explorer.exe", "\"" + folder + "\"");
+                StatusText.Text = "Select a point in the list to nudge it.";
+                return;
             }
-            catch (Exception) { }
+
+            foreach (PointRow row in moved)
+            {
+                Vec3 p = row.Record.Position;
+                switch (tag[0])
+                {
+                    case 'X': row.Record.Position = new Vec3(p.X + step, p.Y, p.Z); break;
+                    case 'Y': row.Record.Position = new Vec3(p.X, p.Y + step, p.Z); break;
+                    default: row.Record.Position = new Vec3(p.X, p.Y, p.Z + step); break;
+                }
+                row.MovedByHand();
+            }
+
+            StatusText.Text = "Nudged " + moved.Count + " point(s) " +
+                (step < 0 ? "-" : "+") + Math.Abs(step * 1000).ToString("0.#", CultureInfo.InvariantCulture) +
+                " mm in " + tag[0] + ".";
         }
 
-        private void OnClose(object sender, RoutedEventArgs e) { Close(); }
+        /// <summary>Pull a point that has drifted back onto the nearest corner.</summary>
+        private void OnResnap(object sender, RoutedEventArgs e)
+        {
+            if (_document == null) return;
+
+            var chosen = new List<PointRow>();
+            foreach (PointRow row in PointList.SelectedItems) chosen.Add(row);
+            if (chosen.Count == 0) { StatusText.Text = "Select a point in the list to re-snap it."; return; }
+
+            double radiusMetres = Double(SnapRadiusBox.Text, 50) / 1000.0;
+            double radiusDocument = _scaleToMeters == 0 ? radiusMetres : radiusMetres / _scaleToMeters;
+            int moved = 0;
+
+            foreach (PointRow row in chosen)
+            {
+                Vec3 p = row.Record.Position;
+                var inDocument = new Point3D(
+                    p.X / _scaleToMeters, p.Y / _scaleToMeters, p.Z / _scaleToMeters);
+
+                ModelItemCollection near = PrimitiveHarvester.ItemsNear(
+                    _document, inDocument, radiusDocument, PrimitiveHarvester.DefaultItemBudget);
+                MeshSoup soup = PrimitiveHarvester.Harvest(near, _scaleToMeters, 60000);
+                SnapResult snapped = SnapSolver.Snap(soup, p, SnapMode.Corner, radiusMetres);
+                if (!snapped.Snapped) continue;
+
+                row.Record.Position = snapped.Position;
+                row.Resnapped(snapped);
+                moved++;
+            }
+
+            StatusText.Text = moved == 0
+                ? "Nothing to snap to within " + Double(SnapRadiusBox.Text, 50).ToString("0.#", CultureInfo.InvariantCulture) + " mm."
+                : "Re-snapped " + moved + " point(s) onto the nearest corner.";
+        }
+
+        private void OnSelectMarker(object sender, RoutedEventArgs e)
+        {
+            var row = PointList.SelectedItem as PointRow;
+            if (row == null) { StatusText.Text = "Select a point in the list first."; return; }
+            if (_markerModel == null)
+            {
+                StatusText.Text = "The markers are not in the model yet — press “Write and show in model”.";
+                return;
+            }
+
+            StatusText.Text = ModelPlacer.TrySelectMarker(_document, _markerModel, row.Id)
+                ? "Selected " + row.Id + " in Navisworks. Use Item Tools › Move to drag it, then read the move back."
+                : "Could not find a marker for " + row.Id + " in the model.";
+        }
+
+        // ── Markers as geometry ───────────────────────────────────────────────
+
+        private void OnShowMarkers(object sender, RoutedEventArgs e)
+        {
+            PixmydWorkspace workspace = Workspace();
+            if (workspace == null || _document == null) return;
+            if (_points.Count == 0) { StatusText.Text = "Place some points first."; return; }
+
+            try
+            {
+                string path = WriteMarkerFile(workspace);
+
+                ModelPlacer.AppendResult appended = ModelPlacer.Append(_document, path);
+                if (!appended.Ok)
+                {
+                    MarkerModelStatusText.Text = appended.Message;
+                    return;
+                }
+
+                _markerModel = appended.Model ?? ModelPlacer.FindByFile(_document, path);
+                // A freshly appended set has no moves on it yet, so anything
+                // recorded against the previous one must not be re-applied.
+                _placer.ForgetMoves();
+
+                MarkerModelStatusText.Text =
+                    _points.Count + " marker(s) appended from " + Path.GetFileName(path) + ". " +
+                    "Navisworks cannot remove an appended file from a plugin, so a previous marker set stays " +
+                    "in the tree — its layers are named for the points it held.";
+                StatusText.Text = "Markers written to EXPORT and appended to the model.";
+                RefreshExportList();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Markers could not be written:" + Environment.NewLine + ex.Message,
+                    "PIXMYD-Nav", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        /// <summary>
+        /// Write points-markers.dxf in the document's own units.
+        ///
+        /// An appended file lands at its own coordinates, so a marker written in
+        /// metres into a model drawn in millimetres arrives a thousand times too
+        /// close to the origin. The point list is in metres; this is where it
+        /// goes back.
+        /// </summary>
+        private string WriteMarkerFile(PixmydWorkspace workspace)
+        {
+            double toDocument = _scaleToMeters == 0 ? 1.0 : 1.0 / _scaleToMeters;
+
+            var ids = new List<string>();
+            var positions = new List<Vec3>();
+            foreach (PointRow row in _points)
+            {
+                ids.Add(row.Id);
+                Vec3 p = row.Record.Position;
+                positions.Add(new Vec3(p.X * toDocument, p.Y * toDocument, p.Z * toDocument));
+            }
+
+            var shape = MarkerShapeBox.SelectedIndex == 1 ? MarkerShape.Cross : MarkerShape.Sphere;
+            double diameter = Double(MarkerSizeBox.Text, MarkerGlyphs.DefaultDiameterMetres * 1000) / 1000.0 * toDocument;
+
+            string path = workspace.ExportFile(MarkerDxf.FileName);
+            MarkerDxf.Write(path, ids, positions, shape, diameter);
+            return path;
+        }
+
+        /// <summary>
+        /// Fold whatever the user dragged in Navisworks back into the numbers.
+        ///
+        /// Idempotent: ModelPlacer remembers what it has already consumed, so
+        /// pressing this twice does not move a point twice.
+        /// </summary>
+        private void OnReadBackMoves(object sender, RoutedEventArgs e)
+        {
+            if (_markerModel == null)
+            {
+                MarkerModelStatusText.Text =
+                    "There are no markers in the model yet. Press “Write and show in model” first.";
+                return;
+            }
+
+            var ids = new List<string>();
+            foreach (PointRow row in _points) ids.Add(row.Id);
+
+            Dictionary<string, Vec3> moves = _placer.ReadMoves(_markerModel, ids, _scaleToMeters);
+            if (moves.Count == 0)
+            {
+                MarkerModelStatusText.Text =
+                    "Nothing has moved since the last read. Drag a marker with Item Tools › Move, then try again.";
+                return;
+            }
+
+            double largest = 0;
+            foreach (PointRow row in _points)
+            {
+                Vec3 delta;
+                if (!moves.TryGetValue(row.Id, out delta)) continue;
+                Vec3 p = row.Record.Position;
+                row.Record.Position = new Vec3(p.X + delta.X, p.Y + delta.Y, p.Z + delta.Z);
+                row.MovedByHand();
+
+                double size = Math.Sqrt(delta.X * delta.X + delta.Y * delta.Y + delta.Z * delta.Z);
+                if (size > largest) largest = size;
+            }
+
+            MarkerModelStatusText.Text =
+                "Folded " + moves.Count + " move(s) in, the largest " +
+                (largest * 1000).ToString("0.#", CultureInfo.InvariantCulture) + " mm.";
+            StatusText.Text = "Point coordinates updated from the model. Re-export points.json to publish them.";
+        }
 
         // ── Field markers / points export ─────────────────────────────────────
 
         private void OnExportPoints(object sender, RoutedEventArgs e)
         {
-            string folder = MarkerFolderBox.Text.Trim();
-            if (ExportPointsJson(folder)) OpenFolder(folder);
+            PixmydWorkspace workspace = Workspace();
+            if (workspace == null) return;
+            if (ExportPointsJson(workspace)) OpenFolder(workspace.Export);
         }
 
         private void OnExportMarkers(object sender, RoutedEventArgs e)
         {
-            string folder = MarkerFolderBox.Text.Trim();
+            PixmydWorkspace workspace = Workspace();
+            if (workspace == null) return;
 
-            PointSet set = TryBuildSet(folder);
+            PointSet set = TryBuildSet();
             if (set == null || set.Points.Count == 0) return;
 
             try
             {
-                ViewportCapture.Capture(folder, "markers-shot", 240);
+                ViewportCapture.Capture(workspace.Export, "markers-shot", 240);
+                AttachViewpoints(set, workspace.Export);
 
-                foreach (PointRecord point in set.Points)
-                {
-                    var vp = new ViewpointInfo();
-                    vp.Camera = _document != null ? SceneReader.CaptureCamera(_document) : new CameraInfo();
-                    if (ViewportCapture.LastFullImage != "")
-                    {
-                        string imageName = point.Id + "_photo.png";
-                        File.Copy(ViewportCapture.LastFullImage, Path.Combine(folder, imageName), true);
-                        vp.Image = imageName;
-                    }
-                    if (MonoPhotoCheck.IsChecked == true && ViewportCapture.LastMonoThumb != "")
-                    {
-                        string monoName = point.Id + "_photo_mono.png";
-                        File.Copy(ViewportCapture.LastMonoThumb, Path.Combine(folder, monoName), true);
-                        vp.ThumbMono = monoName;
-                    }
-                    point.Viewpoint = vp;
-                }
-
-                set.Write(Path.Combine(folder, "points.json"));
-                File.WriteAllText(Path.Combine(folder, "markers.html"), MarkerPage.Render(set),
+                set.Write(workspace.ExportFile("points.json"));
+                File.WriteAllText(workspace.ExportFile("markers.html"), MarkerPage.Render(set),
                     new System.Text.UTF8Encoding(false));
 
                 MarkerStatusText.Text = "Wrote points.json and markers.html — " +
                     set.Points.Count + " point(s). Print markers.html in a browser.";
-                OpenFolder(folder);
+                RefreshExportList();
+                OpenFolder(workspace.Export);
             }
             catch (Exception ex)
             {
@@ -239,25 +629,35 @@ namespace PIXMYD_Nav
             }
         }
 
-        private void OnBrowseMarkerFolder(object sender, RoutedEventArgs e)
+        /// <summary>Give every point the current view as its reference shot.</summary>
+        private void AttachViewpoints(PointSet set, string folder)
         {
-            string picked = PickFolder(MarkerFolderBox.Text);
-            if (picked != null) MarkerFolderBox.Text = picked;
-        }
-
-        private void OnBrowseArFolder(object sender, RoutedEventArgs e)
-        {
-            string picked = PickFolder(ArFolderBox.Text);
-            if (picked != null) ArFolderBox.Text = picked;
+            foreach (PointRecord point in set.Points)
+            {
+                var vp = new ViewpointInfo();
+                vp.Camera = _document != null ? SceneReader.CaptureCamera(_document) : new CameraInfo();
+                if (ViewportCapture.LastFullImage != "")
+                {
+                    string imageName = point.Id + "_photo.png";
+                    File.Copy(ViewportCapture.LastFullImage, Path.Combine(folder, imageName), true);
+                    vp.Image = imageName;
+                }
+                if (MonoPhotoCheck.IsChecked == true && ViewportCapture.LastMonoThumb != "")
+                {
+                    string monoName = point.Id + "_photo_mono.png";
+                    File.Copy(ViewportCapture.LastMonoThumb, Path.Combine(folder, monoName), true);
+                    vp.ThumbMono = monoName;
+                }
+                point.Viewpoint = vp;
+            }
         }
 
         // ── AR model export ───────────────────────────────────────────────────
 
         private void OnExportAr(object sender, RoutedEventArgs e)
         {
-            if (_document == null) { StatusText.Text = "No document."; return; }
-            string folder = ArFolderBox.Text.Trim();
-            if (string.IsNullOrWhiteSpace(folder)) { StatusText.Text = "Choose an output folder first."; return; }
+            PixmydWorkspace workspace = Workspace();
+            if (workspace == null || _document == null) { StatusText.Text = "No document."; return; }
 
             try
             {
@@ -285,19 +685,24 @@ namespace PIXMYD_Nav
 
                 if (ArCaptureCheck.IsChecked == true)
                 {
-                    ViewportCapture.Capture(folder, "ar-anchor", 240);
+                    ViewportCapture.Capture(workspace.Export, "ar-anchor", 240);
                     if (ViewportCapture.LastFullImage != "")
                         ar.Image = Path.GetFileName(ViewportCapture.LastFullImage);
                     if (ArMonoCheck.IsChecked == true && ViewportCapture.LastMonoThumb != "")
                         ar.ThumbMono = Path.GetFileName(ViewportCapture.LastMonoThumb);
                 }
 
-                ar.Write(Path.Combine(folder, "ar-model.json"));
+                string geometryNote = "no geometry — the phone can show where the model is, not draw it";
+                if (ArGeometryCheck.IsChecked == true)
+                    geometryNote = WriteArGeometry(workspace, ar);
+
+                ar.Write(workspace.ExportFile("ar-model.json"));
 
                 ArPreviewText.Text =
                     "modelName: " + ar.ModelName + Environment.NewLine +
                     "units: " + ar.SourceUnits + " → " + ar.TargetUnits + " (" + _scaleToMeters.ToString("0.###", CultureInfo.InvariantCulture) + ")" + Environment.NewLine +
                     "upAxis: " + ar.UpAxis + Environment.NewLine +
+                    "geometry: " + geometryNote + Environment.NewLine +
                     Environment.NewLine +
                     "boundingBox.min: " + SceneReader.FormatVec(ar.BBoxMin) + Environment.NewLine +
                     "boundingBox.max: " + SceneReader.FormatVec(ar.BBoxMax) + Environment.NewLine +
@@ -309,8 +714,9 @@ namespace PIXMYD_Nav
                     "appliedOffset (add back for source world coords): " +
                     SceneReader.FormatVec(ar.AppliedOffset);
 
-                ArStatusText.Text = "Wrote ar-model.json to " + folder;
-                OpenFolder(folder);
+                ArStatusText.Text = "Wrote the AR model to EXPORT.";
+                RefreshExportList();
+                OpenFolder(workspace.Export);
             }
             catch (Exception ex)
             {
@@ -319,60 +725,138 @@ namespace PIXMYD_Nav
             }
         }
 
+        /// <summary>
+        /// Tessellate the model (or the selection) and write it beside
+        /// ar-model.json, so the bundle carries something to draw.
+        ///
+        /// Runs on the UI thread with the cursor changed rather than on a worker:
+        /// the COM primitive bridge is not documented as thread-safe, and a
+        /// tessellation that races the renderer is a crash inside Navisworks
+        /// rather than an exception this plugin could report.
+        /// </summary>
+        private string WriteArGeometry(PixmydWorkspace workspace, ArModelSet ar)
+        {
+            ArProgressBar.Visibility = Visibility.Visible;
+            ArProgressBar.IsIndeterminate = true;
+            Mouse.OverrideCursor = System.Windows.Input.Cursors.Wait;
+            try
+            {
+                ModelItemCollection items = SelectedOrWholeModel();
+                if (items.Count == 0)
+                    return "nothing to tessellate — the selection is empty";
+
+                int budget = (int)Double(ArTriangleBudgetBox.Text, PrimitiveHarvester.DefaultTriangleBudget);
+                MeshSoup soup = PrimitiveHarvester.Harvest(items, _scaleToMeters, budget);
+                if (soup.TriangleCount == 0)
+                    return "the selection tessellated to nothing — point clouds and 2D sheets have no triangles";
+
+                var options = new GlbWriter.Options
+                {
+                    Name = ar.ModelName,
+                    ZUpToYUp = string.Equals(ar.UpAxis, "Z", StringComparison.OrdinalIgnoreCase),
+                    Offset = ar.AppliedOffset,
+                    IncludeNormals = true
+                };
+                long bytes = GlbWriter.Write(workspace.ExportFile(GlbWriter.FileName), soup, options);
+
+                ar.GeometryFile = GlbWriter.FileName;
+                ar.GeometryBytes = bytes;
+                ar.GeometryTriangles = soup.TriangleCount;
+
+                return GlbWriter.FileName + " — " + soup.TriangleCount.ToString("N0", CultureInfo.InvariantCulture) +
+                       " triangles, " + Core.Transfer.TransferProgress.Bytes(bytes) +
+                       (soup.TriangleCount >= budget ? " (stopped at the triangle budget)" : "");
+            }
+            finally
+            {
+                Mouse.OverrideCursor = null;
+                ArProgressBar.IsIndeterminate = false;
+                ArProgressBar.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        private ModelItemCollection SelectedOrWholeModel()
+        {
+            var items = new ModelItemCollection();
+            try
+            {
+                if (ArGeometrySourceBox.SelectedIndex == 0)
+                {
+                    Selection selection = _document.CurrentSelection;
+                    if (selection.HasExplicitSelection)
+                    {
+                        foreach (ModelItem item in selection.ExplicitSelection) items.Add(item);
+                        return items;
+                    }
+                    // An empty selection means the whole model rather than
+                    // nothing: exporting an empty AR bundle helps no one.
+                }
+                foreach (ModelItem root in _document.Models.RootItems) items.Add(root);
+            }
+            catch (Exception) { }
+            return items;
+        }
+
         // ── Shared helpers ────────────────────────────────────────────────────
 
-        private PointSet TryBuildSet(string folder)
+        private PointSet TryBuildSet()
         {
-            if (string.IsNullOrWhiteSpace(folder)) { StatusText.Text = "Choose an output folder first."; return null; }
-
             var set = new PointSet();
             set.SetName = SetNameBox.Text.Trim();
             if (string.IsNullOrEmpty(set.SetName)) set.SetName = "PIXMYD points";
 
-            foreach (PointRow row in _points) set.Points.Add(row.Record);
+            // A row that is only a name has no coordinate to export, and
+            // exporting it as (0, 0, 0) would put a control point at the
+            // model origin and look deliberate.
+            int waiting = 0;
+            foreach (PointRow row in _points)
+            {
+                if (!row.IsPlaced) { waiting++; continue; }
+                set.Points.Add(row.Record);
+            }
+
+            if (waiting > 0)
+                StatusText.Text = waiting + " point(s) from the phone are still waiting to be " +
+                                  "placed on the model, and are not in this export.";
 
             if (set.Points.Count == 0)
             {
-                StatusText.Text = "No points yet — capture some from the selection first.";
-                MessageBox.Show("No points yet.\n\nSelect items in Navisworks and press “Capture selection”.",
+                StatusText.Text = "No points placed yet — turn on Pick points and click in the model.";
+                MessageBox.Show(
+                    "No points yet.\n\nPress “Pick points”, then click a corner in the model. " +
+                    "Every click places one point.",
                     "PIXMYD-Nav", MessageBoxButton.OK, MessageBoxImage.Information);
                 return null;
             }
+
+            try
+            {
+                SceneReader.SceneSnapshot scene = SceneReader.Capture(_document);
+                set.Provenance.SourceDocument = scene.SourceDocument;
+                set.Provenance.SourceUnits = scene.SourceUnits.ToString();
+                set.Provenance.UpAxis = scene.UpAxis;
+            }
+            catch (Exception) { }
+
             return set;
         }
 
-        private bool ExportPointsJson(string folder)
+        private bool ExportPointsJson(PixmydWorkspace workspace)
         {
-            PointSet set = TryBuildSet(folder);
+            PointSet set = TryBuildSet();
             if (set == null || set.Points.Count == 0) return false;
 
             try
             {
                 if (CapturePhotoCheck.IsChecked == true)
                 {
-                    ViewportCapture.Capture(folder, "points-shot", 240);
-                    foreach (PointRecord point in set.Points)
-                    {
-                        var vp = new ViewpointInfo();
-                        vp.Camera = _document != null ? SceneReader.CaptureCamera(_document) : new CameraInfo();
-                        if (ViewportCapture.LastFullImage != "")
-                        {
-                            string imageName = point.Id + "_photo.png";
-                            File.Copy(ViewportCapture.LastFullImage, Path.Combine(folder, imageName), true);
-                            vp.Image = imageName;
-                        }
-                        if (MonoPhotoCheck.IsChecked == true && ViewportCapture.LastMonoThumb != "")
-                        {
-                            string monoName = point.Id + "_photo_mono.png";
-                            File.Copy(ViewportCapture.LastMonoThumb, Path.Combine(folder, monoName), true);
-                            vp.ThumbMono = monoName;
-                        }
-                        point.Viewpoint = vp;
-                    }
+                    ViewportCapture.Capture(workspace.Export, "points-shot", 240);
+                    AttachViewpoints(set, workspace.Export);
                 }
 
-                set.Write(Path.Combine(folder, "points.json"));
-                StatusText.Text = "Wrote points.json — " + set.Points.Count + " point(s).";
+                set.Write(workspace.ExportFile("points.json"));
+                StatusText.Text = "Wrote points.json to EXPORT — " + set.Points.Count + " point(s).";
+                RefreshExportList();
                 return true;
             }
             catch (Exception ex)
@@ -381,6 +865,21 @@ namespace PIXMYD_Nav
                     "PIXMYD-Nav", MessageBoxButton.OK, MessageBoxImage.Error);
                 return false;
             }
+        }
+
+        private void RefreshExportList()
+        {
+            var lines = new List<string>();
+            try
+            {
+                if (_workspace != null && Directory.Exists(_workspace.Export))
+                    foreach (string path in Directory.GetFiles(_workspace.Export))
+                        lines.Add(Path.GetFileName(path).PadRight(28) +
+                                  Core.Transfer.TransferProgress.Bytes(new FileInfo(path).Length));
+            }
+            catch (Exception) { }
+            if (lines.Count == 0) lines.Add("(nothing exported yet)");
+            MarkerPlanList.ItemsSource = lines;
         }
 
         private string NextPointId()
@@ -398,12 +897,14 @@ namespace PIXMYD_Nav
             return "P" + (highest + 1).ToString("000", CultureInfo.InvariantCulture);
         }
 
-        private string WhatFolder()
+        private void OnOpenOutputFolder(object sender, RoutedEventArgs e)
         {
-            if (Tabs.SelectedIndex == 2 && !string.IsNullOrWhiteSpace(ArFolderBox.Text))
-                return ArFolderBox.Text.Trim();
-            return MarkerFolderBox.Text.Trim();
+            PixmydWorkspace workspace = Workspace();
+            if (workspace == null) return;
+            OpenFolder(Tabs.SelectedIndex == 3 ? workspace.Import : workspace.Export);
         }
+
+        private void OnClose(object sender, RoutedEventArgs e) { Close(); }
 
         private void OpenFolder(string folder)
         {
@@ -415,26 +916,13 @@ namespace PIXMYD_Nav
             catch (Exception) { }
         }
 
-        private string PickFolder(string current)
+        private static double Double(string text, double fallback)
         {
-            var dialog = new Microsoft.Win32.OpenFileDialog
-            {
-                Title = "Choose the output folder",
-                FileName = ".",
-                CheckFileExists = false,
-                InitialDirectory = !string.IsNullOrWhiteSpace(current) ? current : ""
-            };
-            bool? result = dialog.ShowDialog(this);
-            if (result != true) return null;
-            string folder = Path.GetDirectoryName(dialog.FileName);
-            return string.IsNullOrWhiteSpace(folder) ? current : folder;
-        }
-
-        private Vec3 Scale(Vec3 v)
-        {
-            return _scaleToMeters == 1.0
-                ? v
-                : new Vec3(v.X * _scaleToMeters, v.Y * _scaleToMeters, v.Z * _scaleToMeters);
+            double value;
+            if (double.TryParse((text ?? "").Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out value)
+                && !double.IsNaN(value) && !double.IsInfinity(value))
+                return value;
+            return fallback;
         }
 
         private static Vec3 Sub(Vec3 a, Vec3 b)
@@ -447,11 +935,53 @@ namespace PIXMYD_Nav
     public sealed class PointRow : INotifyPropertyChanged
     {
         private readonly PointRecord _record;
+        private string _snapText;
+        private bool _isPlaced;
 
-        public PointRow(PointRecord record) { _record = record; }
+        public PointRow(PointRecord record) : this(record, null) { }
+
+        public PointRow(PointRecord record, SnapResult snap)
+        {
+            _record = record;
+            _snapText = snap == null ? "" : snap.Describe();
+            _isPlaced = true;
+        }
+
+        /// <summary>
+        /// A row that names a point the phone placed and that nobody has put on
+        /// the model yet.
+        ///
+        /// This is what makes the return leg work the other way round: the crew
+        /// placed P001 to P004 on site, those ids come home with the scan, and
+        /// the coordinator's job is to click the same four features on the
+        /// model. An empty row with a name on it is a to-do list; an absent row
+        /// is a thing nobody knows they were supposed to do.
+        /// </summary>
+        public static PointRow Expected(string id, string label)
+        {
+            var record = new PointRecord { Id = id, Label = string.IsNullOrEmpty(label) ? id : label };
+            var row = new PointRow(record, null);
+            row._isPlaced = false;
+            row._snapText = "";
+            return row;
+        }
 
         public PointRecord Record { get { return _record; } }
         public string Id { get { return _record.Id; } }
+
+        /// <summary>False while this row is only a name waiting for a pick.</summary>
+        public bool IsPlaced { get { return _isPlaced; } }
+
+        /// <summary>Fill an expected row from a pick.</summary>
+        public void PlaceAt(Vec3 position, SnapResult snap)
+        {
+            _record.Position = position;
+            _isPlaced = true;
+            _snapText = snap == null ? "" : snap.Describe();
+            OnChanged("IsPlaced");
+            OnChanged("PositionText");
+            OnChanged("SnapText");
+        }
 
         public string Label
         {
@@ -459,7 +989,15 @@ namespace PIXMYD_Nav
             set { _record.Label = value ?? ""; OnChanged("Label"); }
         }
 
-        public string PositionText { get { return SceneReader.FormatVec(_record.Position); } }
+        public string PositionText
+        {
+            get { return _isPlaced ? SceneReader.FormatVec(_record.Position) : "— not placed —"; }
+        }
+
+        /// <summary>What the pick landed on, so a point taken off a face rather
+        /// than a corner is visible in the list rather than only in the
+        /// coordinate.</summary>
+        public string SnapText { get { return _snapText; } }
 
         public string Intersection
         {
@@ -479,6 +1017,23 @@ namespace PIXMYD_Nav
                 if (_record.Grid != null) _record.Grid.Level = value ?? "";
                 OnChanged("Level");
             }
+        }
+
+        /// <summary>The coordinate changed by hand -- a nudge, or a drag read
+        /// back out of the model. The snap it was placed with no longer
+        /// describes where it is, and saying so beats leaving a stale badge.</summary>
+        public void MovedByHand()
+        {
+            _snapText = "moved";
+            OnChanged("PositionText");
+            OnChanged("SnapText");
+        }
+
+        public void Resnapped(SnapResult snap)
+        {
+            _snapText = snap == null ? "" : snap.Describe();
+            OnChanged("PositionText");
+            OnChanged("SnapText");
         }
 
         public event PropertyChangedEventHandler PropertyChanged;

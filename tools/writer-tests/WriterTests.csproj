@@ -26,6 +26,8 @@
     <Compile Include="MarkerPageTests.cs" />
     <Compile Include="TransferTests.cs" />
     <Compile Include="CaptureTests.cs" />
+    <Compile Include="AlignmentTests.cs" />
+    <Compile Include="WorkspaceTests.cs" />
     <Compile Include="../../PIXMYD-Nav/Core/Points/PointSet.cs" />
     <Compile Include="../../PIXMYD-Nav/Core/Points/LevelName.cs" />
     <Compile Include="../../PIXMYD-Nav/Core/Markers/QrEncoder.cs" />
@@ -36,5 +38,12 @@
     <Compile Include="../../PIXMYD-Nav/Core/Transfer/TransferManifest.cs" />
     <Compile Include="../../PIXMYD-Nav/Core/Capture/RigidSolve.cs" />
     <Compile Include="../../PIXMYD-Nav/Core/Capture/CaptureFile.cs" />
+    <Compile Include="../../PIXMYD-Nav/Core/Capture/GravitySolve.cs" />
+    <Compile Include="../../PIXMYD-Nav/Core/Capture/TransformMath.cs" />
+    <Compile Include="../../PIXMYD-Nav/Core/Points/SnapSolver.cs" />
+    <Compile Include="../../PIXMYD-Nav/Core/Points/PointSetReader.cs" />
+    <Compile Include="../../PIXMYD-Nav/Core/Markers/MarkerGeometry.cs" />
+    <Compile Include="../../PIXMYD-Nav/Core/Workspace/PixmydWorkspace.cs" />
+    <Compile Include="../../PIXMYD-Nav/Core/Ar/GlbWriter.cs" />
   </ItemGroup>
 </Project>

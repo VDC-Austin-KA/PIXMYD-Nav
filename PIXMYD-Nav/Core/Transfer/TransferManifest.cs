@@ -30,6 +30,70 @@ namespace PIXMYD_Nav.Core.Transfer
         }
     }
 
+    /// <summary>Which way the bytes are going.</summary>
+    public enum TransferDirection
+    {
+        Sending = 0,
+        Receiving = 1
+    }
+
+    /// <summary>
+    /// How far through one file a transfer is.
+    ///
+    /// Bytes, not files. The two legs of this protocol are lopsided -- an
+    /// export is a JSON and a handful of PNGs, a return leg is a JSON and a
+    /// mesh three orders of magnitude larger -- so a bar driven by files
+    /// completed tells the user nothing during the only part that takes time.
+    ///
+    /// Pure. In WriterTests.csproj.
+    /// </summary>
+    public sealed class TransferProgress
+    {
+        public readonly TransferDirection Direction;
+        public readonly string FileName;
+        public readonly long BytesDone;
+        public readonly long BytesTotal;
+
+        public TransferProgress(TransferDirection direction, string fileName, long done, long total)
+        {
+            Direction = direction;
+            FileName = fileName ?? "";
+            BytesDone = done < 0 ? 0 : done;
+            BytesTotal = total < 0 ? 0 : total;
+        }
+
+        /// <summary>0 to 1. Zero total reads as zero rather than as complete:
+        /// an empty file is not evidence that the transfer finished.</summary>
+        public double Fraction
+        {
+            get
+            {
+                if (BytesTotal <= 0) return 0;
+                double value = (double)BytesDone / BytesTotal;
+                return value < 0 ? 0 : (value > 1 ? 1 : value);
+            }
+        }
+
+        public bool IsComplete { get { return BytesTotal > 0 && BytesDone >= BytesTotal; } }
+
+        /// <summary>One line for a status bar.</summary>
+        public string Describe()
+        {
+            string verb = Direction == TransferDirection.Sending ? "Sending" : "Receiving";
+            return verb + " " + FileName + " -- " + Bytes(BytesDone) + " of " + Bytes(BytesTotal);
+        }
+
+        public static string Bytes(long value)
+        {
+            if (value < 1024) return value.ToString(CultureInfo.InvariantCulture) + " B";
+            if (value < 1024 * 1024)
+                return (value / 1024.0).ToString("0.#", CultureInfo.InvariantCulture) + " KB";
+            if (value < 1024L * 1024 * 1024)
+                return (value / (1024.0 * 1024)).ToString("0.#", CultureInfo.InvariantCulture) + " MB";
+            return (value / (1024.0 * 1024 * 1024)).ToString("0.##", CultureInfo.InvariantCulture) + " GB";
+        }
+    }
+
     public sealed class TransferOffer
     {
         public string Name;

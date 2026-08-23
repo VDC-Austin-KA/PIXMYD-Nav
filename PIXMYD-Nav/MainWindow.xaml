@@ -1,9 +1,9 @@
 <Window x:Class="PIXMYD_Nav.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="PIXMYD-Nav — Points, Field Markers, AR Model Export"
-        Height="720" Width="1040"
-        MinHeight="560" MinWidth="880"
+        Title="PIXMYD-Nav — Points, Field Markers, AR Model, Transfer"
+        Height="780" Width="1120"
+        MinHeight="600" MinWidth="940"
         WindowStartupLocation="CenterScreen"
         Background="#FFF4F5F7"
         FontFamily="Segoe UI" FontSize="12">
@@ -55,6 +55,13 @@
             </Style.Triggers>
         </Style>
 
+        <Style x:Key="NudgeButton" TargetType="Button">
+            <Setter Property="MinWidth" Value="34"/>
+            <Setter Property="Padding" Value="0,3"/>
+            <Setter Property="Margin" Value="0,0,4,4"/>
+            <Setter Property="FontFamily" Value="Consolas"/>
+        </Style>
+
         <Style TargetType="TextBox">
             <Setter Property="Padding" Value="4,3"/>
         </Style>
@@ -77,10 +84,31 @@
                 <StackPanel>
                     <TextBlock Text="PIXMYD-Nav" Foreground="White" FontSize="19" FontWeight="Bold"/>
                     <TextBlock x:Name="SubtitleText" Foreground="#FF9CA3AF" Margin="0,1,0,0"
-                               Text="Points, field markers and AR model export — bridge to the PIXMYD phone app"/>
+                               Text="Place points, print markers, send a model, take a scan back — one folder for all of it"/>
                 </StackPanel>
                 <TextBlock x:Name="DocumentText" Grid.Column="1" Foreground="#FF9CA3AF"
                            VerticalAlignment="Center" TextAlignment="Right"/>
+            </Grid>
+        </Border>
+
+        <!-- One workspace folder for everything. EXPORT holds what goes out,
+             IMPORT holds what comes back. -->
+        <Border DockPanel.Dock="Top" Background="{StaticResource Panel}"
+                BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="16,8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="PIXMYD folder" VerticalAlignment="Center" Margin="0,0,8,0"
+                           Foreground="#FF374151"/>
+                <TextBox x:Name="WorkspaceBox" Grid.Column="1" VerticalContentAlignment="Center"
+                         ToolTip="Everything this plugin writes goes in EXPORT; everything the phone sends back lands in IMPORT."/>
+                <Button Grid.Column="2" Content="Browse…" Margin="6,0,0,0" MinWidth="72"
+                        Click="OnBrowseWorkspace"/>
+                <Button Grid.Column="3" Content="Open" MinWidth="60" Click="OnOpenOutputFolder"/>
             </Grid>
         </Border>
 
@@ -94,11 +122,10 @@
                 </Grid.ColumnDefinitions>
 
                 <StackPanel VerticalAlignment="Center">
-                    <TextBlock x:Name="StatusText" Text="Ready." Foreground="#FF374151"/>
+                    <TextBlock x:Name="StatusText" Text="Ready." Foreground="#FF374151" TextWrapping="Wrap"/>
                 </StackPanel>
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal">
-                    <Button Content="Open output folder" Click="OnOpenOutputFolder" MinWidth="130"/>
                     <Button Content="Close" Click="OnClose"/>
                 </StackPanel>
             </Grid>
@@ -111,22 +138,38 @@
                 <Grid Margin="0,10,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="320"/>
+                        <ColumnDefinition Width="340"/>
                     </Grid.ColumnDefinitions>
 
                     <Border Style="{StaticResource Card}" Margin="0,0,10,0" Padding="8">
                         <DockPanel>
                             <TextBlock DockPanel.Dock="Top" Style="{StaticResource SectionHeader}"
-                                       Text="Survey points"/>
+                                       Text="Control points"/>
                             <TextBlock DockPanel.Dock="Top" Style="{StaticResource Hint}"
-                                       Text="Captured from the current selection — one point per selected item, positioned at its bounding-box centre. Positions are in target units relative to the applied offset; grid fields are filled by you (Navisworks exposes no grid data to plugins)."/>
+                                       Text="Turn on Pick points, then click in the model — one click, one point. Each pick is pulled onto the nearest corner, then edge, then face, using the model's own geometry. Positions are in metres relative to the applied offset; grid fields are yours to fill in (Navisworks exposes no grid data to plugins)."/>
+
+                            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+                                <Button x:Name="PickToggleButton" Content="Pick points"
+                                        Click="OnTogglePicking" Style="{StaticResource PrimaryButton}"/>
+                                <Button Content="Take current pick" Click="OnTakeCurrentPick"
+                                        ToolTip="Add whatever the measure tool is showing right now."/>
+                                <Button Content="Remove selected" Click="OnRemoveSelected"/>
+                                <Button Content="Clear" Click="OnClearPoints"/>
+                            </StackPanel>
 
                             <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-                                <Button Content="Capture selection" Click="OnCaptureSelection"
-                                        Style="{StaticResource PrimaryButton}"/>
-                                <Button Content="Capture whole model" Click="OnCaptureModel"/>
-                                <Button Content="Clear" Click="OnClearPoints"/>
-                                <Button Content="Remove selected" Click="OnRemoveSelected"/>
+                                <TextBlock Text="Snap to" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <ComboBox x:Name="SnapModeBox" Width="150" SelectedIndex="0"
+                                          ToolTip="Corner is the default and falls through to edge, then face, then the raw pick.">
+                                    <ComboBoxItem Content="Corner (then edge, face)"/>
+                                    <ComboBoxItem Content="Edge (then face)"/>
+                                    <ComboBoxItem Content="Face"/>
+                                    <ComboBoxItem Content="Nothing — raw pick"/>
+                                </ComboBox>
+                                <TextBlock Text="within" VerticalAlignment="Center" Margin="10,0,6,0"/>
+                                <TextBox x:Name="SnapRadiusBox" Text="50" Width="46"
+                                         VerticalContentAlignment="Center" TextAlignment="Right"/>
+                                <TextBlock Text="mm" VerticalAlignment="Center" Margin="4,0,0,0"/>
                             </StackPanel>
 
                             <ListBox x:Name="PointList" BorderBrush="{StaticResource Line}"
@@ -136,11 +179,12 @@
                                     <DataTemplate>
                                         <Grid Margin="0,2">
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="54"/>
+                                                <ColumnDefinition Width="46"/>
                                                 <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="140"/>
-                                                <ColumnDefinition Width="90"/>
-                                                <ColumnDefinition Width="90"/>
+                                                <ColumnDefinition Width="150"/>
+                                                <ColumnDefinition Width="78"/>
+                                                <ColumnDefinition Width="70"/>
+                                                <ColumnDefinition Width="70"/>
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Text="{Binding Id}" FontFamily="Consolas"
                                                        VerticalAlignment="Center"/>
@@ -151,10 +195,14 @@
                                             <TextBlock Grid.Column="2" Text="{Binding PositionText}"
                                                        FontFamily="Consolas" VerticalAlignment="Center"
                                                        TextTrimming="CharacterEllipsis"/>
-                                            <TextBox Grid.Column="3" Text="{Binding Intersection, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                            <TextBlock Grid.Column="3" Text="{Binding SnapText}"
+                                                       VerticalAlignment="Center" Foreground="#FF6B7280"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       ToolTip="What the pick snapped to, and how far it moved"/>
+                                            <TextBox Grid.Column="4" Text="{Binding Intersection, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                      VerticalContentAlignment="Center" Padding="2,1"
                                                      ToolTip="Grid intersection, e.g. A-1 (optional)"/>
-                                            <TextBox Grid.Column="4" Text="{Binding Level, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                            <TextBox Grid.Column="5" Text="{Binding Level, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                      VerticalContentAlignment="Center" Padding="2,1"
                                                      ToolTip="Level, e.g. L03 (optional)"/>
                                         </Grid>
@@ -169,7 +217,6 @@
                             <Border Style="{StaticResource Card}" Margin="0,0,0,10">
                                 <StackPanel>
                                     <TextBlock Style="{StaticResource SectionHeader}" Text="Point set"/>
-
                                     <TextBlock Style="{StaticResource FieldLabel}" Text="Set name"/>
                                     <TextBox x:Name="SetNameBox" Margin="0,0,0,8"/>
 
@@ -181,6 +228,87 @@
                                     <Button Content="Export points.json" Click="OnExportPoints"
                                             Style="{StaticResource PrimaryButton}" Margin="0,10,0,0"
                                             HorizontalAlignment="Left"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource Card}" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource SectionHeader}" Text="Markers in the model"/>
+                                    <TextBlock Style="{StaticResource Hint}"
+                                               Text="Writes each point as real 3D geometry on its own named layer and appends it to this model, so a point is selectable in the tree and travels with anything you export."/>
+
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                        <ComboBox x:Name="MarkerShapeBox" Width="96" SelectedIndex="0">
+                                            <ComboBoxItem Content="Sphere"/>
+                                            <ComboBoxItem Content="Cross"/>
+                                        </ComboBox>
+                                        <TextBox x:Name="MarkerSizeBox" Text="76.2" Width="52" Margin="8,0,0,0"
+                                                 VerticalContentAlignment="Center" TextAlignment="Right"
+                                                 ToolTip="Marker diameter in millimetres. 76.2 mm is three inches."/>
+                                        <TextBlock Text="mm across" VerticalAlignment="Center" Margin="4,0,0,0"/>
+                                    </StackPanel>
+
+                                    <Button Content="Write and show in model" Click="OnShowMarkers"
+                                            Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left"/>
+                                    <Button Content="Read back gizmo moves" Click="OnReadBackMoves"
+                                            HorizontalAlignment="Left" Margin="0,6,0,0"
+                                            ToolTip="Drag a marker with Navisworks' own Item Tools move gizmo, then press this to fold the move into the point's coordinate."/>
+                                    <TextBlock x:Name="MarkerModelStatusText" Style="{StaticResource Hint}"
+                                               Margin="0,8,0,0"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource SectionHeader}" Text="Nudge the selected point"/>
+                                    <TextBlock Style="{StaticResource Hint}"
+                                               Text="For the millimetre that dragging cannot reach. Moves every point selected in the list."/>
+
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                        <TextBlock Text="Step" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                        <TextBox x:Name="NudgeStepBox" Text="5" Width="52"
+                                                 VerticalContentAlignment="Center" TextAlignment="Right"/>
+                                        <TextBlock Text="mm" VerticalAlignment="Center" Margin="4,0,0,0"/>
+                                    </StackPanel>
+
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+
+                                        <TextBlock Text="X" VerticalAlignment="Center" Margin="0,0,6,4"
+                                                   FontFamily="Consolas"/>
+                                        <Button Grid.Column="1" Content="−" Style="{StaticResource NudgeButton}"
+                                                Tag="X-" Click="OnNudge"/>
+                                        <Button Grid.Column="2" Content="+" Style="{StaticResource NudgeButton}"
+                                                Tag="X+" Click="OnNudge"/>
+
+                                        <TextBlock Grid.Row="1" Text="Y" VerticalAlignment="Center" Margin="0,0,6,4"
+                                                   FontFamily="Consolas"/>
+                                        <Button Grid.Row="1" Grid.Column="1" Content="−" Style="{StaticResource NudgeButton}"
+                                                Tag="Y-" Click="OnNudge"/>
+                                        <Button Grid.Row="1" Grid.Column="2" Content="+" Style="{StaticResource NudgeButton}"
+                                                Tag="Y+" Click="OnNudge"/>
+
+                                        <TextBlock Grid.Row="2" Text="Z" VerticalAlignment="Center" Margin="0,0,6,4"
+                                                   FontFamily="Consolas"/>
+                                        <Button Grid.Row="2" Grid.Column="1" Content="−" Style="{StaticResource NudgeButton}"
+                                                Tag="Z-" Click="OnNudge"/>
+                                        <Button Grid.Row="2" Grid.Column="2" Content="+" Style="{StaticResource NudgeButton}"
+                                                Tag="Z+" Click="OnNudge"/>
+                                    </Grid>
+
+                                    <Button Content="Re-snap to nearest corner" Click="OnResnap"
+                                            HorizontalAlignment="Left" Margin="0,6,0,0"/>
+                                    <Button Content="Select marker in Navisworks" Click="OnSelectMarker"
+                                            HorizontalAlignment="Left" Margin="0,6,0,0"/>
                                 </StackPanel>
                             </Border>
                         </StackPanel>
@@ -202,18 +330,7 @@
                                 <TextBlock Style="{StaticResource SectionHeader}" Text="Marker pages"/>
 
                                 <TextBlock Style="{StaticResource Hint}"
-                                           Text="One printable A4 page per point: inline SVG QR code (scans straight to the point in the phone app), id, label, coordinates and grid reference. Self-contained HTML — open it in a browser and print."/>
-
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Output folder"/>
-                                <Grid Margin="0,0,0,8">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBox x:Name="MarkerFolderBox" VerticalContentAlignment="Center"/>
-                                    <Button Grid.Column="1" Content="Browse…" Margin="6,0,0,0"
-                                            MinWidth="72" Click="OnBrowseMarkerFolder"/>
-                                </Grid>
+                                           Text="One printable A4 page per point: inline SVG QR code (scans straight to the point in the phone app), id, label, coordinates and grid reference. Self-contained HTML — open it in a browser and print. Written into the workspace's EXPORT folder."/>
 
                                 <Button Content="Export markers.html" Click="OnExportMarkers"
                                         Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left"/>
@@ -226,9 +343,9 @@
                     <Border Grid.Column="1" Style="{StaticResource Card}">
                         <DockPanel>
                             <TextBlock DockPanel.Dock="Top" Style="{StaticResource SectionHeader}"
-                                       Text="Everything written to the folder"/>
+                                       Text="Everything written to EXPORT"/>
                             <TextBlock DockPanel.Dock="Top" Style="{StaticResource Hint}"
-                                       Text="markers.html — one page per point, browser-printed. points.json — the same data the Points tab exports, so the folder is a self-contained hand-off to the field. *_photo.png / *_photo_mono.png — the viewport capture for each point (taken at export time)."/> 
+                                       Text="markers.html — one page per point, browser-printed. points.json — the same data the Points tab exports, so the folder is a self-contained hand-off to the field. points-markers.dxf — the same points as 3D geometry. *_photo.png / *_photo_mono.png — the viewport capture for each point (taken at export time)."/>
                             <ItemsControl x:Name="MarkerPlanList" FontFamily="Consolas" FontSize="11"/>
                         </DockPanel>
                     </Border>
@@ -249,27 +366,30 @@
                                 <TextBlock Style="{StaticResource SectionHeader}" Text="AR model"/>
 
                                 <TextBlock Style="{StaticResource Hint}"
-                                           Text="Writes the whole-model bounding box and the current camera as ar-model.json, so the phone app can anchor the model on top of the real world. The box is shifted so its minimum corner sits at the origin; the shift is recorded and reversible."/>
+                                           Text="Writes ar-model.json — bounding box, camera and provenance — and, when geometry is included, ar-model.glb beside it so the phone can actually draw the model over the room. The box is shifted so its minimum corner sits at the origin; the shift is recorded and reversible."/>
 
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Output folder"/>
-                                <Grid Margin="0,0,0,8">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBox x:Name="ArFolderBox" VerticalContentAlignment="Center"/>
-                                    <Button Grid.Column="1" Content="Browse…" Margin="6,0,0,0"
-                                            MinWidth="72" Click="OnBrowseArFolder"/>
-                                </Grid>
+                                <CheckBox x:Name="ArGeometryCheck" IsChecked="True"
+                                          Content="Include model geometry (.glb)"/>
+                                <StackPanel Orientation="Horizontal" Margin="20,4,0,6">
+                                    <ComboBox x:Name="ArGeometrySourceBox" Width="150" SelectedIndex="0">
+                                        <ComboBoxItem Content="Current selection"/>
+                                        <ComboBoxItem Content="Whole model"/>
+                                    </ComboBox>
+                                    <TextBox x:Name="ArTriangleBudgetBox" Text="400000" Width="72" Margin="8,0,0,0"
+                                             VerticalContentAlignment="Center" TextAlignment="Right"
+                                             ToolTip="Stop after this many triangles. A phone drawing an AR overlay is not a workstation."/>
+                                </StackPanel>
 
                                 <CheckBox x:Name="ArCaptureCheck" IsChecked="True"
                                           Content="Capture the current view as the anchor photo"/>
                                 <CheckBox x:Name="ArMonoCheck" IsChecked="True"
                                           Content="Also write the small grayscale thumbnail"/>
 
-                                <Button Content="Export ar-model.json" Click="OnExportAr"
+                                <Button Content="Export AR model" Click="OnExportAr"
                                         Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left"
                                         Margin="0,10,0,0"/>
+                                <ProgressBar x:Name="ArProgressBar" Height="6" Margin="0,8,0,0"
+                                             Minimum="0" Maximum="1" Visibility="Collapsed"/>
                                 <TextBlock x:Name="ArStatusText" Style="{StaticResource Hint}"
                                            Margin="0,8,0,0"/>
                             </StackPanel>
@@ -287,61 +407,68 @@
                 </Grid>
             </TabItem>
 
+            <!-- ── Transfer ───────────────────────────────────────────── -->
             <TabItem Header="  Transfer  ">
                 <Grid Margin="0,10,0,0">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="360"/>
+                        <ColumnDefinition Width="380"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
 
-                    <StackPanel>
-                        <Border Style="{StaticResource Card}" Margin="0,0,10,0">
-                            <StackPanel>
-                                <TextBlock Style="{StaticResource SectionHeader}" Text="Send to the phone"/>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel Margin="0,0,10,0">
+                            <Border Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource SectionHeader}" Text="Send and receive"/>
 
-                                <TextBlock Style="{StaticResource Hint}"
-                                           Text="Shows a code the PIXMYD app scans to pull this export over the local network, and to send a scan back the same way. Nothing leaves this machine until the phone asks, and the session closes when this window does."/>
+                                    <TextBlock Style="{StaticResource Hint}"
+                                               Text="Shows a code the PIXMYD app scans to pull this model's EXPORT folder over the local network, and to send a scan back into IMPORT. Nothing leaves this machine until the phone asks, and the session closes when this window does."/>
 
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Folder to share"/>
-                                <Grid Margin="0,0,0,8">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBox x:Name="TransferFolderBox" VerticalContentAlignment="Center"/>
-                                    <Button Grid.Column="1" Content="Browse&#8230;" Margin="6,0,0,0"
-                                            MinWidth="72" Click="OnBrowseTransferFolder"/>
-                                </Grid>
+                                    <CheckBox x:Name="TransferUploadCheck" IsChecked="True"
+                                              Content="Accept a scan coming back"/>
 
-                                <CheckBox x:Name="TransferUploadCheck" IsChecked="True"
-                                          Content="Accept a scan coming back"/>
+                                    <Button x:Name="TransferStartButton" Content="Show transfer code"
+                                            Click="OnStartTransfer"
+                                            Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left"
+                                            Margin="0,10,0,0"/>
+                                    <Button x:Name="TransferStopButton" Content="Close the session"
+                                            Click="OnStopTransfer" HorizontalAlignment="Left"
+                                            Margin="0,6,0,0" IsEnabled="False"/>
 
-                                <Button x:Name="TransferStartButton" Content="Show transfer code"
-                                        Click="OnStartTransfer"
-                                        Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left"
-                                        Margin="0,10,0,0"/>
-                                <Button x:Name="TransferStopButton" Content="Close the session"
-                                        Click="OnStopTransfer" HorizontalAlignment="Left"
-                                        Margin="0,6,0,0" IsEnabled="False"/>
+                                    <ProgressBar x:Name="TransferProgressBar" Height="8" Margin="0,10,0,0"
+                                                 Minimum="0" Maximum="1" Visibility="Collapsed"/>
+                                    <TextBlock x:Name="TransferProgressText" Style="{StaticResource Hint}"
+                                               Margin="0,4,0,0"/>
 
-                                <TextBlock x:Name="TransferStatusText" Style="{StaticResource Hint}"
-                                           Margin="0,8,0,0"/>
-                            </StackPanel>
-                        </Border>
+                                    <TextBlock x:Name="TransferStatusText" Style="{StaticResource Hint}"
+                                               Margin="0,4,0,0"/>
+                                </StackPanel>
+                            </Border>
 
-                        <Border Style="{StaticResource Card}" Margin="0,10,10,0">
-                            <StackPanel>
-                                <TextBlock Style="{StaticResource SectionHeader}" Text="A scan came back"/>
-                                <TextBlock x:Name="CaptureSummaryText" Style="{StaticResource Hint}"
-                                           Text="Nothing yet."/>
-                                <Button x:Name="CaptureReviewButton" Content="Review and place&#8230;"
-                                        Click="OnReviewCapture" HorizontalAlignment="Left"
-                                        Margin="0,8,0,0" IsEnabled="False"/>
-                                <Button Content="Open a capture folder&#8230;" Click="OnOpenCaptureFolder"
-                                        HorizontalAlignment="Left" Margin="0,6,0,0"/>
-                            </StackPanel>
-                        </Border>
-                    </StackPanel>
+                            <Border Style="{StaticResource Card}" Margin="0,10,0,0">
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource SectionHeader}" Text="Scans that came back"/>
+                                    <TextBlock Style="{StaticResource Hint}"
+                                               Text="Everything in IMPORT, newest first."/>
+                                    <ListBox x:Name="ImportList" Height="120" FontSize="11"
+                                             BorderBrush="{StaticResource Line}"
+                                             SelectionChanged="OnImportSelected"/>
+                                    <TextBlock x:Name="CaptureSummaryText" Style="{StaticResource Hint}"
+                                               Text="Nothing yet." Margin="0,8,0,0"/>
+                                    <Button x:Name="CaptureReviewButton" Content="Review and place…"
+                                            Click="OnReviewCapture" HorizontalAlignment="Left"
+                                            Style="{StaticResource PrimaryButton}"
+                                            Margin="0,4,0,0" IsEnabled="False"/>
+                                    <Button x:Name="SeedPointsButton" Content="Place the phone's points…"
+                                            Click="OnSeedPhonePoints" HorizontalAlignment="Left"
+                                            Margin="0,6,0,0" IsEnabled="False"
+                                            ToolTip="Puts the ids the crew placed on site into the Points tab, ready to click onto the model."/>
+                                    <Button Content="Open a capture folder…" Click="OnOpenCaptureFolder"
+                                            HorizontalAlignment="Left" Margin="0,6,0,0"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
 
                     <Border Grid.Column="1" Style="{StaticResource Card}">
                         <DockPanel>
