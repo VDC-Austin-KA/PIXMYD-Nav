@@ -54,7 +54,7 @@ namespace PIXMYD_Nav.Core.Transfer
         private DateTime _expiresUtc;
 
         private readonly string _offerDirectory;
-        private readonly string _inboxDirectory;
+        private string _inboxDirectory;
         private readonly TransferOffer _offer;
         private readonly bool _acceptsUpload;
         private readonly long _maxUploadBytes;
@@ -66,6 +66,27 @@ namespace PIXMYD_Nav.Core.Transfer
         public event Action<string> Activity;
         /// <summary>Raised with the inbox path when a guest commits a capture.</summary>
         public event Action<string> CaptureCommitted;
+        /// <summary>
+        /// Raised as bytes move, in either direction, on the listener thread.
+        ///
+        /// A file count is not progress. The return leg is one capture.json of
+        /// a few kilobytes and one mesh of a few hundred megabytes, so a bar
+        /// driven by files completed sits at 50% for the entire transfer and
+        /// then finishes -- which is indistinguishable from a hang, and it is
+        /// exactly when a user gives up and unplugs something.
+        /// </summary>
+        public event Action<TransferProgress> Progress;
+
+        /// <summary>
+        /// Where an arriving capture is written. Settable so the window can hand
+        /// the session a fresh folder after one capture is committed, rather
+        /// than letting a second scan overwrite the first one's capture.json.
+        /// </summary>
+        public string InboxDirectory
+        {
+            get { return _inboxDirectory; }
+            set { if (!string.IsNullOrEmpty(value)) _inboxDirectory = value; }
+        }
 
         public TransferTicket Ticket { get; private set; }
         public bool IsRunning { get { return _running; } }
@@ -309,9 +330,29 @@ namespace PIXMYD_Nav.Core.Transfer
                 return;
             }
 
-            byte[] body = File.ReadAllBytes(full);
-            Write(stream, 200, "application/octet-stream", body);
-            Report("Sent " + name + " (" + body.Length + " bytes)");
+            var info = new FileInfo(full);
+            long length = info.Length;
+
+            // Streamed rather than read whole: an AR model export is tens of
+            // megabytes and a phone on site wifi takes real seconds over it,
+            // which is precisely when the bar has to move.
+            WriteHead(stream, 200, "application/octet-stream", length);
+            using (var file = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                var buffer = new byte[64 * 1024];
+                long sent = 0;
+                ReportProgress(TransferDirection.Sending, name, 0, length);
+                while (sent < length)
+                {
+                    int read = file.Read(buffer, 0, buffer.Length);
+                    if (read <= 0) break;
+                    stream.Write(buffer, 0, read);
+                    sent += read;
+                    ReportProgress(TransferDirection.Sending, name, sent, length);
+                }
+                stream.Flush();
+            }
+            Report("Sent " + name + " (" + length + " bytes)");
         }
 
         private void ReceiveFile(NetworkStream stream, Dictionary<string, string> headers, string name)
@@ -346,6 +387,7 @@ namespace PIXMYD_Nav.Core.Transfer
             {
                 var buffer = new byte[64 * 1024];
                 long remaining = length;
+                ReportProgress(TransferDirection.Receiving, name, 0, length);
                 while (remaining > 0)
                 {
                     int wanted = (int)Math.Min(buffer.Length, remaining);
@@ -353,6 +395,7 @@ namespace PIXMYD_Nav.Core.Transfer
                     if (read <= 0) throw new IOException("The upload ended early.");
                     file.Write(buffer, 0, read);
                     remaining -= read;
+                    ReportProgress(TransferDirection.Receiving, name, length - remaining, length);
                 }
             }
 
@@ -506,6 +549,19 @@ namespace PIXMYD_Nav.Core.Transfer
 
         private static void Write(NetworkStream stream, int status, string contentType, byte[] body)
         {
+            WriteHead(stream, status, contentType, body.Length);
+            if (body.Length > 0) stream.Write(body, 0, body.Length);
+            stream.Flush();
+        }
+
+        /// <summary>
+        /// The response head on its own, for a body that is streamed rather than
+        /// held in memory. Content-Length is written up front either way: this
+        /// server does not do chunked encoding, and a guest that cannot see the
+        /// length cannot draw a progress bar of its own.
+        /// </summary>
+        private static void WriteHead(NetworkStream stream, int status, string contentType, long length)
+        {
             string reason;
             switch (status)
             {
@@ -522,7 +578,7 @@ namespace PIXMYD_Nav.Core.Transfer
             var head = new StringBuilder();
             head.Append("HTTP/1.1 ").Append(status).Append(' ').Append(reason).Append("\r\n");
             head.Append("Content-Type: ").Append(contentType).Append("\r\n");
-            head.Append("Content-Length: ").Append(body.Length).Append("\r\n");
+            head.Append("Content-Length: ").Append(length.ToString(CultureInfo.InvariantCulture)).Append("\r\n");
             // No keep-alive: one request per connection keeps the parser to the
             // subset above and costs nothing on a LAN.
             head.Append("Connection: close\r\n");
@@ -530,8 +586,6 @@ namespace PIXMYD_Nav.Core.Transfer
 
             byte[] headBytes = Encoding.ASCII.GetBytes(head.ToString());
             stream.Write(headBytes, 0, headBytes.Length);
-            if (body.Length > 0) stream.Write(body, 0, body.Length);
-            stream.Flush();
         }
 
         // MARK: - Guards
@@ -585,6 +639,30 @@ namespace PIXMYD_Nav.Core.Transfer
         {
             Action<string> handler = Activity;
             if (handler != null) handler(message);
+        }
+
+        private long _lastProgressTicks;
+
+        /// <summary>
+        /// Report movement, throttled to roughly twenty times a second.
+        ///
+        /// Unthrottled this fires once per 64 KB, which on a fast LAN is
+        /// thousands of dispatcher posts a second for a bar that redraws sixty
+        /// times -- the reporting would cost more than the transfer. The first
+        /// and last calls for each file always get through, so a bar always
+        /// starts at zero and always reaches the end.
+        /// </summary>
+        private void ReportProgress(TransferDirection direction, string name, long done, long total)
+        {
+            Action<TransferProgress> handler = Progress;
+            if (handler == null) return;
+
+            bool edge = done == 0 || done >= total;
+            long now = DateTime.UtcNow.Ticks;
+            if (!edge && now - _lastProgressTicks < TimeSpan.TicksPerMillisecond * 50) return;
+            _lastProgressTicks = now;
+
+            handler(new TransferProgress(direction, name, done, total));
         }
     }
 }

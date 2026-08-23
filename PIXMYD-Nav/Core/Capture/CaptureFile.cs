@@ -39,6 +39,9 @@ namespace PIXMYD_Nav.Core.Capture
         public string[] OutlierPointIds;
         /// <summary>True when this app solved it rather than reading it.</summary>
         public bool SolvedLocally;
+        /// <summary>True when the solve held the vertical from gravity rather
+        /// than fitting all six degrees of freedom.</summary>
+        public bool VerticalHeld;
     }
 
     public sealed class CaptureFile
@@ -54,6 +57,22 @@ namespace PIXMYD_Nav.Core.Capture
         public CaptureSolution Solution;
         public string GeometryFile;
         public long GeometryBytes;
+        /// <summary>
+        /// Which frame the mesh is written in: "model" when the phone baked the
+        /// alignment into the geometry before sending it, "capture" when it is
+        /// raw. Defaults to "capture", which is what every file written before
+        /// this field existed contains.
+        ///
+        /// It matters because a mesh already in model coordinates is appended
+        /// and left alone, and a raw one has to be transformed. Applying the
+        /// transform twice puts the scan exactly as far past the model as it
+        /// was short of it, which looks like a solver bug and is not.
+        /// </summary>
+        public string GeometryFrame = "capture";
+        /// <summary>The up axis of the capture's own frame. ARKit is Y-up.</summary>
+        public string CaptureUpAxis = "Y";
+        /// <summary>Points the phone placed itself, when it sent any.</summary>
+        public string FieldPointsFile = "";
         /// <summary>Carried from the point set the capture was taken against.</summary>
         public double[] AppliedOffset;
         public string TargetUnits;
@@ -62,6 +81,36 @@ namespace PIXMYD_Nav.Core.Capture
 
         public bool HasSolution { get { return Solution != null && Solution.Matrix != null; } }
         public bool HasGeometry { get { return !string.IsNullOrEmpty(GeometryFile); } }
+
+        /// <summary>True when the mesh is already in model world coordinates.</summary>
+        public bool GeometryIsPlaced
+        {
+            get { return string.Equals(GeometryFrame, "model", StringComparison.OrdinalIgnoreCase); }
+        }
+
+        /// <summary>
+        /// Whether Navisworks can append this mesh at all.
+        ///
+        /// FBX is what the phone writes now, because appending a file is the
+        /// only way a plugin can put geometry into an open document and FBX is a
+        /// format Navisworks reads without an extra exporter. Captures from
+        /// older builds carry a .glb, which Navisworks does not read -- that is
+        /// worth saying plainly rather than failing at the append.
+        /// </summary>
+        public bool GeometryIsAppendable
+        {
+            get
+            {
+                if (!HasGeometry) return false;
+                string extension = System.IO.Path.GetExtension(GeometryFile);
+                return string.Equals(extension, ".fbx", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(extension, ".dwg", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(extension, ".dxf", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(extension, ".stl", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(extension, ".nwc", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(extension, ".nwd", StringComparison.OrdinalIgnoreCase);
+            }
+        }
     }
 
     public class CaptureReadException : Exception
@@ -170,7 +219,11 @@ namespace PIXMYD_Nav.Core.Capture
             {
                 file.GeometryFile = Str(geometry["file"], "");
                 file.GeometryBytes = (long)(geometry["bytes"] == null ? 0 : geometry["bytes"].AsNumber(0));
+                file.GeometryFrame = Str(geometry["frame"], "capture");
             }
+
+            JsonValue fieldPoints = root["fieldPoints"];
+            if (fieldPoints != null) file.FieldPointsFile = Str(fieldPoints["file"], "");
 
             JsonValue provenance = root["provenance"];
             if (provenance != null)
@@ -181,6 +234,7 @@ namespace PIXMYD_Nav.Core.Capture
                 if (offset != null) file.AppliedOffset = offset;
                 file.TargetUnits = Str(provenance["navex:targetUnits"], "Meters");
                 file.UpAxis = Str(provenance["navex:upAxis"], "Z");
+                file.CaptureUpAxis = Str(provenance["pixmyd:captureUpAxis"], "Y");
                 file.SourceDocument = Str(provenance["navex:sourceDocument"], "");
             }
 
@@ -222,7 +276,37 @@ namespace PIXMYD_Nav.Core.Capture
                         ? "This capture has no observations that match the point set."
                         : "None of this capture's points are in the set: " + string.Join(", ", unknown.ToArray()) + ".");
 
-            RigidSolution solved = RigidSolve.Solve(pairs);
+            return Solve(pairs, file.CaptureUpAxis, file.UpAxis, false);
+        }
+
+        /// <summary>
+        /// Solve a set of pairs, choosing the method the data supports.
+        ///
+        /// Three or more pairs get Horn's unconstrained solve, which is what the
+        /// contract's numbers have always meant. Two get the gravity-constrained
+        /// one: both frames know which way down is, so holding the vertical
+        /// leaves four unknowns that two points over-determine. Below two there
+        /// is nothing to do, and the refusal says so.
+        ///
+        /// <paramref name="forceGravity"/> is for the case where the operator
+        /// knows better than the residuals -- three hand-aimed picks fit a tilt
+        /// more readily than an IMU gets gravity wrong, and holding the vertical
+        /// is often the better answer even when Horn's is available.
+        /// </summary>
+        public static CaptureSolution Solve(
+            List<ControlPair> pairs,
+            string captureUpAxis,
+            string projectUpAxis,
+            bool forceGravity)
+        {
+            bool gravity = forceGravity || pairs.Count < 3;
+            RigidSolution solved = gravity
+                ? GravitySolve.Solve(
+                    pairs,
+                    GravitySolve.UpVectorFor(string.IsNullOrEmpty(captureUpAxis) ? "Y" : captureUpAxis),
+                    GravitySolve.UpVectorFor(projectUpAxis))
+                : RigidSolve.Solve(pairs);
+
             return new CaptureSolution
             {
                 Matrix = solved.Matrix,
@@ -231,7 +315,8 @@ namespace PIXMYD_Nav.Core.Capture
                 MaxError = solved.MaxError,
                 AccuracyGrade = AccuracyBands.Classify(solved.RmsError).Band,
                 OutlierPointIds = new string[0],
-                SolvedLocally = true
+                SolvedLocally = true,
+                VerticalHeld = gravity
             };
         }
 

@@ -41,6 +41,18 @@ namespace PIXMYD_Nav.Core.Ar
         public string Image = "";
         public string ThumbMono = "";
 
+        /// <summary>
+        /// The mesh beside this file, when one was written.
+        ///
+        /// Empty is a supported state, not a failure -- an export of a model too
+        /// large to tessellate, or one made from a point-cloud region, still
+        /// tells the phone where the model is. The phone's decoder has always
+        /// read this field as optional and says so where it renders the result.
+        /// </summary>
+        public string GeometryFile = "";
+        public long GeometryBytes;
+        public int GeometryTriangles;
+
         public string ToJson()
         {
             var sb = new StringBuilder();
@@ -93,6 +105,12 @@ namespace PIXMYD_Nav.Core.Ar
                 .Set("lookAt", Vec(Camera.LookAt))
                 .Set("upVector", Vec(Camera.UpVector))
                 .Set("fovDegrees", Camera.FovDegrees));
+
+            if (!string.IsNullOrEmpty(GeometryFile))
+                root.Set("geometry", new JObj()
+                    .Set("file", GeometryFile)
+                    .Set("bytes", (double)GeometryBytes)
+                    .Set("triangleCount", GeometryTriangles));
 
             root.Set("image", Image ?? "");
             root.Set("thumbMono", ThumbMono ?? "");
