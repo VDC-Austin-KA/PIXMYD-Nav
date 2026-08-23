@@ -27,6 +27,7 @@ namespace PIXMYD_Nav
             int failures = 0;
 
             TransformRoundTrip(ref failures);
+            FbxImportBasisUndoesTheReadersTurn(ref failures);
             GravitySolveRecoversAKnownTransform(ref failures);
             GravitySolveNeedsTwoPointsAndAHorizontalBaseline(ref failures);
             GravitySolveAgreesWithHornOnCleanControl(ref failures);
@@ -36,6 +37,7 @@ namespace PIXMYD_Nav
             SnapUsesPublishedSnapPointsFirst(ref failures);
             ClosestPointOnTriangleHandlesEveryRegion(ref failures);
             CaptureReaderTakesTwoPointsAndAPlacedMesh(ref failures);
+            ReadsAPointSetThePhonePlaced(ref failures);
 
             return failures;
         }
@@ -85,6 +87,52 @@ namespace PIXMYD_Nav
             collapsed[15] = 1;
             Program.Check(TransformMath.Decompose(collapsed) == null,
                 "a zero rotation matrix decomposes to null", ref failures);
+        }
+
+        /// <summary>
+        /// Navisworks turns an FBX from its declared Y-up into the document's
+        /// Z-up as it reads it. The basis this composes has to undo exactly
+        /// that turn and nothing else -- a sign error here lays every incoming
+        /// scan on its side.
+        /// </summary>
+        private static void FbxImportBasisUndoesTheReadersTurn(ref int failures)
+        {
+            double[] basis = TransformMath.FbxCaptureBasis("Z");
+
+            // What the reader does: (x, y, z) -> (x, -z, y). The basis maps that
+            // back, so feeding it a turned point returns the original.
+            var original = new double[] { 1.5, -2.25, 7.0 };
+            var asImported = new double[] { original[0], -original[2], original[1] };
+            double[] back = CapturePlacement.Transform(basis, asImported);
+
+            for (int k = 0; k < 3; k++)
+                Program.Check(Math.Abs(back[k] - original[k]) < 1e-12,
+                    "the FBX import basis returns axis " + k + ", got " + back[k], ref failures);
+
+            // A Y-up document has nothing turned, so the basis must be identity
+            // rather than a quarter turn applied to a frame that never moved.
+            double[] identity = TransformMath.FbxCaptureBasis("Y");
+            double[] unchanged = CapturePlacement.Transform(identity, original);
+            for (int k = 0; k < 3; k++)
+                Program.Check(Math.Abs(unchanged[k] - original[k]) < 1e-12,
+                    "a Y-up document turns nothing, axis " + k, ref failures);
+
+            // Composition order: the basis has to run first, then the solve.
+            double[] solve = TransformMath.Compose(
+                new double[] { 0, 0, 1 }, 0.5, new double[] { 10, 20, 30 });
+            double[] composed = TransformMath.Multiply(solve, basis);
+
+            double[] viaComposed = CapturePlacement.Transform(composed, asImported);
+            double[] viaSteps = CapturePlacement.Transform(solve, CapturePlacement.Transform(basis, asImported));
+            for (int k = 0; k < 3; k++)
+                Program.Check(Math.Abs(viaComposed[k] - viaSteps[k]) < 1e-12,
+                    "Multiply(a, b) applies b first, axis " + k, ref failures);
+
+            // And composing with an identity must change nothing at all.
+            double[] withIdentity = TransformMath.Multiply(solve, TransformMath.FbxCaptureBasis("Y"));
+            for (int i = 0; i < 16; i++)
+                Program.Check(Math.Abs(withIdentity[i] - solve[i]) < 1e-12,
+                    "composing with identity leaves element " + i + " alone", ref failures);
         }
 
         // MARK: - GravitySolve
@@ -437,6 +485,105 @@ namespace PIXMYD_Nav
                 "three points use Horn's solve unless the vertical is forced", ref failures);
             Program.Check(CaptureReader.Solve(three, "Z", "Z", true).VerticalHeld,
                 "and the caller can force the constrained one anyway", ref failures);
+        }
+
+        /// <summary>
+        /// The other half of the round trip: points that started on the phone.
+        ///
+        /// The fixture is the exact output of PIXMYD's
+        /// FieldPointSet.renderPointsJson — same field order, same namespaced
+        /// additions, same provenance. It is the same shape this plugin writes,
+        /// on purpose, so there is one schema and one version gate rather than
+        /// two; what differs is the frame, and the file has to say so or a
+        /// consumer would read ARKit coordinates as model coordinates and place
+        /// a scan at the origin.
+        /// </summary>
+        private static void ReadsAPointSetThePhonePlaced(ref int failures)
+        {
+            const string json = @"{
+  ""contractVersion"": ""1.0"",
+  ""setId"": ""9ab41f2c-1111-2222-3333-444444444444"",
+  ""setName"": ""Level 2 plant room"",
+  ""createdUtc"": ""2026-02-02T02:40:00.000Z"",
+  ""provenance"": {
+    ""navex:sourceDocument"": ""Plant room walk"",
+    ""navex:sourceUnits"": ""Meters"",
+    ""navex:targetUnits"": ""Meters"",
+    ""navex:upAxis"": ""Y"",
+    ""navex:originMode"": ""CaptureOrigin"",
+    ""navex:appliedOffset"": [ 0.0, 0.0, 0.0 ],
+    ""pixmyd:frame"": ""capture"",
+    ""pixmyd:captureUpAxis"": ""Y""
+  },
+  ""points"": [
+    {
+      ""id"": ""P001"",
+      ""label"": ""Door reveal"",
+      ""position"": [ 1.25, -0.5, 3.0 ],
+      ""grid"": { ""intersection"": """", ""level"": """", ""offset"": [ 0.0, 0.0, 0.0 ], ""distance"": 0.0 },
+      ""qrPayload"": ""pixmy://p/9ab41f2c/P001"",
+      ""pixmyd:source"": ""mesh""
+    },
+    {
+      ""id"": ""P002"",
+      ""label"": ""P002"",
+      ""position"": [ 4.0, -0.5, 3.0 ],
+      ""grid"": { ""intersection"": """", ""level"": """", ""offset"": [ 0.0, 0.0, 0.0 ], ""distance"": 0.0 },
+      ""qrPayload"": ""pixmy://p/9ab41f2c/P002"",
+      ""pixmyd:source"": ""plane"",
+      ""pixmyd:rangeMetres"": 5.2
+    }
+  ]
+}";
+
+            ReadPointSet set = PointSetReader.Read(json);
+
+            Program.Check(set.SetName == "Level 2 plant room", "the set name is read", ref failures);
+            Program.Check(set.ShortId == "9ab41f2c", "the short id matches the printed QR prefix", ref failures);
+            Program.Check(set.Points.Count == 2, "both points are read", ref failures);
+            Program.Check(set.Points[0].Id == "P001" && set.Points[0].Label == "Door reveal",
+                "ids and labels survive", ref failures);
+            Program.Check(Math.Abs(set.Points[0].Position.X - 1.25) < 1e-12 &&
+                          Math.Abs(set.Points[0].Position.Z - 3.0) < 1e-12,
+                "and so do the coordinates", ref failures);
+
+            // The field that stops a scan being placed at the origin.
+            Program.Check(set.IsCaptureFrame,
+                "a set from the phone is recognised as capture-frame, not model-frame", ref failures);
+            Program.Check(set.UpAxis == "Y", "and its up axis is ARKit's", ref failures);
+
+            // The quality fields a consumer written against 1.0 would skip.
+            Program.Check(set.Points[0].Source == "mesh" && set.Points[1].Source == "plane",
+                "how each point was measured is carried", ref failures);
+            Program.Check(Math.Abs(set.Points[1].RangeMetres - 5.2) < 1e-12,
+                "and how far away it was taken from", ref failures);
+
+            Program.Check(PointSetReader.Describe(set).IndexOf("place the same ids", StringComparison.Ordinal) >= 0,
+                "the summary says what to do with a capture-frame set", ref failures);
+
+            // A set this plugin wrote is not capture-frame, and must not be
+            // mistaken for one.
+            var mine = new PointSet { SetId = "aaaabbbb-0000-0000-0000-000000000000", SetName = "L01" };
+            mine.Provenance.OriginMode = "ModelMin";
+            mine.Points.Add(new PointRecord { Id = "P001", Position = new Vec3(1, 2, 3) });
+            ReadPointSet roundTripped = PointSetReader.Read(mine.ToJson());
+            Program.Check(!roundTripped.IsCaptureFrame,
+                "a set this plugin wrote reads back as model-frame", ref failures);
+            Program.Check(roundTripped.Points.Count == 1, "and round-trips through its own writer", ref failures);
+
+            // Version gate before anything else, like every other contract file.
+            bool refused = false;
+            try { PointSetReader.Read(json.Replace("\"1.0\"", "\"2.0\"")); }
+            catch (PointSetReadException e)
+            {
+                refused = e.Message.IndexOf("contract version 2.0", StringComparison.Ordinal) >= 0;
+            }
+            Program.Check(refused, "a version-2 file is refused by version, not by field", ref failures);
+
+            bool refusedGarbage = false;
+            try { PointSetReader.Read("not json"); }
+            catch (PointSetReadException) { refusedGarbage = true; }
+            Program.Check(refusedGarbage, "garbage is refused with a readable message", ref failures);
         }
 
         // MARK: - Fixtures and helpers

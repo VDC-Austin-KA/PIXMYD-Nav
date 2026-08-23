@@ -146,6 +146,60 @@ namespace PIXMYD_Nav.Core.Capture
             };
         }
 
+        /// <summary>
+        /// The turn Navisworks' FBX reader applies on the way in, undone.
+        ///
+        /// An FBX file declares its own up axis, and this suite's writer always
+        /// declares Y -- that is the format's convention and what every reader
+        /// expects. A Navisworks document is Z-up, so its reader turns the
+        /// geometry as it imports: (x, y, z) becomes (x, -z, y).
+        ///
+        /// A capture-frame mesh is written in ARKit's coordinates, which are
+        /// already Y-up, so it goes into the file unturned and comes out of the
+        /// reader turned. The solution matrix maps the *ARKit* frame to the
+        /// model, not the turned one -- so the transform to hand Navisworks is
+        /// the solution composed with the inverse of that turn.
+        ///
+        /// Getting this wrong lays a scan on its side, which at least is
+        /// obvious. Leaving it out entirely is the same thing, so it is here
+        /// rather than in a comment somewhere.
+        ///
+        /// Returns the identity for a Y-up document, where the reader turns
+        /// nothing.
+        /// </summary>
+        public static double[] FbxCaptureBasis(string documentUpAxis)
+        {
+            string axis = (documentUpAxis ?? "Z").Trim().ToUpperInvariant();
+            if (axis == "Y")
+                return Compose(new double[] { 0, 0, 1 }, 0, new double[] { 0, 0, 0 });
+
+            // The reader's turn is (x, y, z) -> (x, -z, y), which is a quarter
+            // turn about +X. Its inverse is the same turn the other way:
+            // (x, y, z) -> (x, z, -y).
+            return Compose(new double[] { 1, 0, 0 }, -Math.PI * 0.5, new double[] { 0, 0, 0 });
+        }
+
+        /// <summary>
+        /// Column-major 4x4 product: the result applies <paramref name="b"/>
+        /// first, then <paramref name="a"/>.
+        /// </summary>
+        public static double[] Multiply(double[] a, double[] b)
+        {
+            if (a == null || a.Length != 16) return b;
+            if (b == null || b.Length != 16) return a;
+
+            var result = new double[16];
+            for (int column = 0; column < 4; column++)
+                for (int row = 0; row < 4; row++)
+                {
+                    double sum = 0;
+                    for (int k = 0; k < 4; k++)
+                        sum += a[k * 4 + row] * b[column * 4 + k];
+                    result[column * 4 + row] = sum;
+                }
+            return result;
+        }
+
         /// <summary>Scale the translation column, leaving the rotation alone.
         /// Used when a transform solved in metres has to act on a document in
         /// millimetres or feet.</summary>

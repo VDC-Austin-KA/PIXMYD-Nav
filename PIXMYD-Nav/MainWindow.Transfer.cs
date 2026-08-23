@@ -353,7 +353,60 @@ namespace PIXMYD_Nav
                 text.Append(capture.GeometryIsPlaced ? " (already in model coordinates)" : " (capture frame)");
             }
 
+            ReadPointSet fromPhone = ReadPhonePoints();
+            SeedPointsButton.IsEnabled = fromPhone != null && fromPhone.Points.Count > 0;
+            if (fromPhone != null && fromPhone.Points.Count > 0)
+                text.Append("  ").Append(PointSetReader.Describe(fromPhone));
+
             CaptureSummaryText.Text = text.ToString();
+        }
+
+        /// <summary>
+        /// The points the phone placed, when this arrival carries any.
+        ///
+        /// Read straight off the folder rather than out of capture.json: the
+        /// file is a points.json in the shape this plugin already writes, which
+        /// is the whole reason the phone writes it that way.
+        /// </summary>
+        private ReadPointSet ReadPhonePoints()
+        {
+            if (string.IsNullOrEmpty(_pendingCaptureFolder)) return null;
+            string path = Path.Combine(_pendingCaptureFolder, "points.json");
+            if (!File.Exists(path)) return null;
+
+            try
+            {
+                return PointSetReader.Read(File.ReadAllText(path));
+            }
+            catch (Exception ex)
+            {
+                OnTransferActivity("Could not read the phone's points.json: " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Put the phone's ids into the Points tab so they can be placed on the
+        /// model, one click each.
+        ///
+        /// This is the half of the round trip that did not exist. Points could
+        /// only ever start at the workstation; now a crew can place them on
+        /// site, and this is where those names arrive.
+        /// </summary>
+        private void OnSeedPhonePoints(object sender, RoutedEventArgs e)
+        {
+            ReadPointSet fromPhone = ReadPhonePoints();
+            if (fromPhone == null || fromPhone.Points.Count == 0)
+            {
+                CaptureSummaryText.Text = "This arrival carries no points.json, so there are no ids to place.";
+                return;
+            }
+
+            int added = SeedExpectedPoints(fromPhone);
+            StatusText.Text = added == 0
+                ? "Every id from the phone is already in the list."
+                : "Added " + added + " id(s) from the phone. Turn on Pick points and click each one " +
+                  "on the model — the list fills in order.";
         }
 
         private CaptureFile ReadPendingCapture()
@@ -586,8 +639,24 @@ namespace PIXMYD_Nav
                 return;
             }
 
+            // Two conversions, and both of them are silent when wrong.
+            //
+            // The mesh arrived as an FBX declaring Y as up, and Navisworks' own
+            // reader turned it into the document's Z-up frame on the way in --
+            // so the solution, which maps the capture's ARKit frame, has to be
+            // composed with the inverse of that turn.
+            //
+            // And the translation is in the contract's metres while the
+            // document may be in millimetres or feet. Getting that wrong on a
+            // millimetre model puts the scan a kilometre away, which at least
+            // is obvious; on a model drawn in feet it puts it three metres
+            // away, which is not.
+            string upAxis = "Z";
+            try { upAxis = SceneReader.Capture(_document).UpAxis; } catch (Exception) { }
+
             double toDocument = _scaleToMeters == 0 ? 1.0 : 1.0 / _scaleToMeters;
-            double[] inDocumentUnits = TransformMath.WithTranslationScaled(placement, toDocument);
+            double[] fromImportedFbx = TransformMath.Multiply(placement, TransformMath.FbxCaptureBasis(upAxis));
+            double[] inDocumentUnits = TransformMath.WithTranslationScaled(fromImportedFbx, toDocument);
 
             string error;
             if (!ModelPlacer.TryTransform(_document, appended.Model, inDocumentUnits, out error))
@@ -668,6 +737,10 @@ namespace PIXMYD_Nav
             var positions = new Dictionary<string, double[]>(StringComparer.Ordinal);
             foreach (PointRow row in _points)
             {
+                // A row that has not been placed has no coordinate. Pairing
+                // against (0, 0, 0) would drag the whole solve to the origin
+                // and report an RMS that looks like a bad scan.
+                if (!row.IsPlaced) continue;
                 Vec3 p = row.Record.Position;
                 positions[row.Id] = new double[] { p.X, p.Y, p.Z };
             }

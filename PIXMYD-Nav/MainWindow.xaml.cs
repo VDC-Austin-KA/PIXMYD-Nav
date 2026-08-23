@@ -280,20 +280,84 @@ namespace PIXMYD_Nav
                     snapped = SnapSolver.Snap(soup, pick, wanted, radiusMetres);
                 }
 
-                var record = new PointRecord { Id = NextPointId(), Position = snapped.Position };
-                record.Label = record.Id;
-                var row = new PointRow(record, snapped);
-                _points.Add(row);
+                // A row the phone named and nobody has placed yet takes the
+                // pick before a new row is invented. That is the whole
+                // interaction when a scan came home with its own points: the
+                // list is a to-do list, and clicking works down it in order.
+                PointRow row = FirstExpected();
+                if (row != null)
+                {
+                    row.PlaceAt(snapped.Position, snapped);
+                }
+                else
+                {
+                    var record = new PointRecord { Id = NextPointId(), Position = snapped.Position };
+                    record.Label = record.Id;
+                    row = new PointRow(record, snapped);
+                    _points.Add(row);
+                }
+
                 PointList.SelectedItem = row;
                 PointList.ScrollIntoView(row);
 
-                StatusText.Text = "Placed " + record.Id + " at " + SceneReader.FormatVec(record.Position) +
-                                  " (" + snapped.Describe() + ").";
+                int remaining = ExpectedCount();
+                StatusText.Text = "Placed " + row.Id + " at " + SceneReader.FormatVec(row.Record.Position) +
+                                  " (" + snapped.Describe() + ")." +
+                                  (remaining > 0
+                                      ? "  " + remaining + " more from the phone still to place."
+                                      : "");
             }
             catch (Exception ex)
             {
                 StatusText.Text = "That pick could not be placed: " + ex.Message;
             }
+        }
+
+        /// <summary>The first row the phone named that has no coordinate yet.</summary>
+        private PointRow FirstExpected()
+        {
+            foreach (PointRow row in _points) if (!row.IsPlaced) return row;
+            return null;
+        }
+
+        private int ExpectedCount()
+        {
+            int count = 0;
+            foreach (PointRow row in _points) if (!row.IsPlaced) count++;
+            return count;
+        }
+
+        /// <summary>
+        /// Seed the list with the ids a phone placed, so they can be put on the
+        /// model one click each.
+        ///
+        /// Existing placed rows for the same ids are kept -- a coordinator who
+        /// has already put P001 on a column does not want it thrown away
+        /// because the same scan was reviewed twice.
+        /// </summary>
+        internal int SeedExpectedPoints(ReadPointSet fromPhone)
+        {
+            if (fromPhone == null) return 0;
+
+            var known = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            foreach (PointRow row in _points) known[row.Id] = true;
+
+            int added = 0;
+            foreach (ReadPoint point in fromPhone.Points)
+            {
+                if (known.ContainsKey(point.Id)) continue;
+                _points.Add(PointRow.Expected(point.Id, point.Label));
+                known[point.Id] = true;
+                added++;
+            }
+
+            if (added > 0)
+            {
+                Tabs.SelectedIndex = 0;
+                PointRow first = FirstExpected();
+                if (first != null) PointList.SelectedItem = first;
+            }
+            return added;
         }
 
         private string SnapModeLabel()
@@ -741,11 +805,23 @@ namespace PIXMYD_Nav
             set.SetName = SetNameBox.Text.Trim();
             if (string.IsNullOrEmpty(set.SetName)) set.SetName = "PIXMYD points";
 
-            foreach (PointRow row in _points) set.Points.Add(row.Record);
+            // A row that is only a name has no coordinate to export, and
+            // exporting it as (0, 0, 0) would put a control point at the
+            // model origin and look deliberate.
+            int waiting = 0;
+            foreach (PointRow row in _points)
+            {
+                if (!row.IsPlaced) { waiting++; continue; }
+                set.Points.Add(row.Record);
+            }
+
+            if (waiting > 0)
+                StatusText.Text = waiting + " point(s) from the phone are still waiting to be " +
+                                  "placed on the model, and are not in this export.";
 
             if (set.Points.Count == 0)
             {
-                StatusText.Text = "No points yet — turn on Pick points and click in the model.";
+                StatusText.Text = "No points placed yet — turn on Pick points and click in the model.";
                 MessageBox.Show(
                     "No points yet.\n\nPress “Pick points”, then click a corner in the model. " +
                     "Every click places one point.",
@@ -860,6 +936,7 @@ namespace PIXMYD_Nav
     {
         private readonly PointRecord _record;
         private string _snapText;
+        private bool _isPlaced;
 
         public PointRow(PointRecord record) : this(record, null) { }
 
@@ -867,10 +944,44 @@ namespace PIXMYD_Nav
         {
             _record = record;
             _snapText = snap == null ? "" : snap.Describe();
+            _isPlaced = true;
+        }
+
+        /// <summary>
+        /// A row that names a point the phone placed and that nobody has put on
+        /// the model yet.
+        ///
+        /// This is what makes the return leg work the other way round: the crew
+        /// placed P001 to P004 on site, those ids come home with the scan, and
+        /// the coordinator's job is to click the same four features on the
+        /// model. An empty row with a name on it is a to-do list; an absent row
+        /// is a thing nobody knows they were supposed to do.
+        /// </summary>
+        public static PointRow Expected(string id, string label)
+        {
+            var record = new PointRecord { Id = id, Label = string.IsNullOrEmpty(label) ? id : label };
+            var row = new PointRow(record, null);
+            row._isPlaced = false;
+            row._snapText = "";
+            return row;
         }
 
         public PointRecord Record { get { return _record; } }
         public string Id { get { return _record.Id; } }
+
+        /// <summary>False while this row is only a name waiting for a pick.</summary>
+        public bool IsPlaced { get { return _isPlaced; } }
+
+        /// <summary>Fill an expected row from a pick.</summary>
+        public void PlaceAt(Vec3 position, SnapResult snap)
+        {
+            _record.Position = position;
+            _isPlaced = true;
+            _snapText = snap == null ? "" : snap.Describe();
+            OnChanged("IsPlaced");
+            OnChanged("PositionText");
+            OnChanged("SnapText");
+        }
 
         public string Label
         {
@@ -878,7 +989,10 @@ namespace PIXMYD_Nav
             set { _record.Label = value ?? ""; OnChanged("Label"); }
         }
 
-        public string PositionText { get { return SceneReader.FormatVec(_record.Position); } }
+        public string PositionText
+        {
+            get { return _isPlaced ? SceneReader.FormatVec(_record.Position) : "— not placed —"; }
+        }
 
         /// <summary>What the pick landed on, so a point taken off a face rather
         /// than a corner is visible in the list rather than only in the

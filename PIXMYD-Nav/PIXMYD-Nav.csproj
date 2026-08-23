@@ -134,6 +134,7 @@
     <Compile Include="Core\Capture\GravitySolve.cs" />
     <Compile Include="Core\Capture\TransformMath.cs" />
     <Compile Include="Core\Points\SnapSolver.cs" />
+    <Compile Include="Core\Points\PointSetReader.cs" />
     <Compile Include="Core\Markers\MarkerGeometry.cs" />
     <Compile Include="Core\Workspace\PixmydWorkspace.cs" />
     <Compile Include="Core\NavBridge\PrimitiveHarvester.cs" />

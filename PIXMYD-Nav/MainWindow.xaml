@@ -459,6 +459,10 @@
                                             Click="OnReviewCapture" HorizontalAlignment="Left"
                                             Style="{StaticResource PrimaryButton}"
                                             Margin="0,4,0,0" IsEnabled="False"/>
+                                    <Button x:Name="SeedPointsButton" Content="Place the phone's points…"
+                                            Click="OnSeedPhonePoints" HorizontalAlignment="Left"
+                                            Margin="0,6,0,0" IsEnabled="False"
+                                            ToolTip="Puts the ids the crew placed on site into the Points tab, ready to click onto the model."/>
                                     <Button Content="Open a capture folder…" Click="OnOpenCaptureFolder"
                                             HorizontalAlignment="Left" Margin="0,6,0,0"/>
                                 </StackPanel>
