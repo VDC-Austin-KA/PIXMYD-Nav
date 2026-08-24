@@ -683,6 +683,24 @@ namespace PIXMYD_Nav
                 ar.Camera.Position = Sub(ar.Camera.Position, ar.AppliedOffset);
                 ar.Camera.LookAt = Sub(ar.Camera.LookAt, ar.AppliedOffset);
 
+                // Rotate into the same Y-up frame as the GLB so the phone gets
+                // one consistent coordinate system from both files.
+                bool sourceIsZUp = string.Equals(ar.UpAxis, "Z", StringComparison.OrdinalIgnoreCase);
+                // Recorded before the turn, because after it UpAxis says "Y"
+                // and there is no way left to tell a rotated Z-up document from
+                // one that was Y-up to begin with. The phone needs that to put
+                // a points.json coordinate into this file's frame.
+                ar.SourceUpAxis = ar.UpAxis;
+                if (sourceIsZUp)
+                {
+                    ar.BBoxMin = ZUpToYUp(ar.BBoxMin);
+                    ar.BBoxMax = ZUpToYUp(ar.BBoxMax);
+                    ar.Camera.Position = ZUpToYUp(ar.Camera.Position);
+                    ar.Camera.LookAt = ZUpToYUp(ar.Camera.LookAt);
+                    ar.Camera.UpVector = ZUpToYUp(ar.Camera.UpVector);
+                    ar.UpAxis = "Y";
+                }
+
                 if (ArCaptureCheck.IsChecked == true)
                 {
                     ViewportCapture.Capture(workspace.Export, "ar-anchor", 240);
@@ -693,10 +711,23 @@ namespace PIXMYD_Nav
                 }
 
                 string geometryNote = "no geometry — the phone can show where the model is, not draw it";
-                if (ArGeometryCheck.IsChecked == true)
-                    geometryNote = WriteArGeometry(workspace, ar);
+                try
+                {
+                    if (ArGeometryCheck.IsChecked == true)
+                        geometryNote = WriteArGeometry(workspace, ar, sourceIsZUp);
+                }
+                catch (Exception geometryEx)
+                {
+                    geometryNote = "geometry failed: " + geometryEx.Message;
+                }
 
+                // The JSON is always written — even when geometry failed — so
+                // the phone still knows where the model is.
                 ar.Write(workspace.ExportFile("ar-model.json"));
+
+                string triInfo = ar.GeometryTriangles > 0
+                    ? " (" + ar.GeometryTriangles.ToString("N0", CultureInfo.InvariantCulture) + " triangles)"
+                    : "";
 
                 ArPreviewText.Text =
                     "modelName: " + ar.ModelName + Environment.NewLine +
@@ -714,7 +745,7 @@ namespace PIXMYD_Nav
                     "appliedOffset (add back for source world coords): " +
                     SceneReader.FormatVec(ar.AppliedOffset);
 
-                ArStatusText.Text = "Wrote the AR model to EXPORT.";
+                ArStatusText.Text = "Wrote ar-model.json to EXPORT" + triInfo + ".";
                 RefreshExportList();
                 OpenFolder(workspace.Export);
             }
@@ -734,7 +765,7 @@ namespace PIXMYD_Nav
         /// tessellation that races the renderer is a crash inside Navisworks
         /// rather than an exception this plugin could report.
         /// </summary>
-        private string WriteArGeometry(PixmydWorkspace workspace, ArModelSet ar)
+        private string WriteArGeometry(PixmydWorkspace workspace, ArModelSet ar, bool zUpToYUp)
         {
             ArProgressBar.Visibility = Visibility.Visible;
             ArProgressBar.IsIndeterminate = true;
@@ -753,7 +784,7 @@ namespace PIXMYD_Nav
                 var options = new GlbWriter.Options
                 {
                     Name = ar.ModelName,
-                    ZUpToYUp = string.Equals(ar.UpAxis, "Z", StringComparison.OrdinalIgnoreCase),
+                    ZUpToYUp = zUpToYUp,
                     Offset = ar.AppliedOffset,
                     IncludeNormals = true
                 };
@@ -928,6 +959,15 @@ namespace PIXMYD_Nav
         private static Vec3 Sub(Vec3 a, Vec3 b)
         {
             return new Vec3(a.X - b.X, a.Y - b.Y, a.Z - b.Z);
+        }
+
+        /// <summary>
+        /// Rotate Z-up source coordinates into glTF's Y-up frame:
+        /// (x, y, z) → (x, z, −y).
+        /// </summary>
+        private static Vec3 ZUpToYUp(Vec3 v)
+        {
+            return new Vec3(v.X, v.Z, -v.Y);
         }
     }
 

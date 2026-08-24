@@ -73,6 +73,14 @@ namespace PIXMYD_Nav.Core.NavBridge
 
             scene.Camera = CaptureCamera(document);
 
+            // The camera comes back in document units like everything else the
+            // API hands out, and the rest of this snapshot is in metres. On a
+            // millimetre model an unscaled camera position is a thousand times
+            // too far out, which the AR export then subtracts a metre-scale
+            // offset from -- a wrong answer built out of two right ones.
+            scene.Camera.Position = Scale(scene.Camera.Position, scene.ScaleToMeters);
+            scene.Camera.LookAt = Scale(scene.Camera.LookAt, scene.ScaleToMeters);
+
             try
             {
                 scene.SourceDocument = document.Title ?? "";

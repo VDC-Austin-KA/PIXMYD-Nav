@@ -76,6 +76,13 @@ namespace PIXMYD_Nav
             string emptyJson = empty.ToJson();
             Program.Check(emptyJson.Contains("\"points\":[]"), "empty point set serialises to an empty points array", ref failures);
 
+            // Target units default to metres rather than to nothing. The
+            // contract fixes them at metres, and a set exported without anyone
+            // setting the field shipped "" for a while -- which the phone read
+            // as "not metres" and warned about on files that were in metres.
+            Program.Check(emptyJson.Contains("\"navex:targetUnits\":\"Meters\""),
+                "a set nobody configured still declares metres", ref failures);
+
             return failures;
         }
     }

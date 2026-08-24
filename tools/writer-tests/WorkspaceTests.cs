@@ -48,11 +48,34 @@ namespace PIXMYD_Nav
             DxfCoordinatesAreAlwaysDecimal(ref failures);
             GlbIsAWellFormedContainer(ref failures);
             GlbDescribesWhatItContains(ref failures);
+            ArModelRecordsTheUpAxisItStartedFrom(ref failures);
 
             return failures;
         }
 
+        /// <summary>
+        /// The phone cannot bring a points.json coordinate into the AR model's
+        /// frame without knowing whether the export turned it. After the turn
+        /// upAxis reads "Y" either way, so the pre-turn axis is written beside
+        /// it; guessing wrong moves the model by a building's height.
+        /// </summary>
+        private static void ArModelRecordsTheUpAxisItStartedFrom(ref int failures)
+        {
+            var turned = new ArModelSet { UpAxis = "Y", SourceUpAxis = "Z" };
+            string json = turned.ToJson();
+            Program.Check(json.Contains("\"navex:upAxis\":\"Y\""), "the exported axis", ref failures);
+            Program.Check(json.Contains("\"navex:sourceUpAxis\":\"Z\""),
+                "the axis it started from", ref failures);
+
+            // Nobody set it: fall back to the exported axis rather than to an
+            // empty string a reader would have to invent a meaning for.
+            var plain = new ArModelSet { UpAxis = "Y" };
+            Program.Check(plain.ToJson().Contains("\"navex:sourceUpAxis\":\"Y\""),
+                "an unset source axis falls back to the exported one", ref failures);
+        }
+
         // MARK: - Workspace
+
 
         private static void WorkspaceHasTwoSides(string root, ref int failures)
         {
@@ -312,13 +335,13 @@ namespace PIXMYD_Nav
             if (min == null || max == null) return;
 
             // The cube spans 0..2 in the source frame, offset by (100, 200, 0)
-            // and turned Z-up to Y-up, which sends source Y to -Y.
+            // and turned Z-up to Y-up: source Y → glTF +Z via (x,z,−y).
             Program.Check(Math.Abs(min[0] - -100) < 1e-4 && Math.Abs(max[0] - -98) < 1e-4,
                 "X is shifted by the applied offset", ref failures);
             Program.Check(Math.Abs(min[1] - 0) < 1e-4 && Math.Abs(max[1] - 2) < 1e-4,
                 "the model's Z became glTF's up axis", ref failures);
             Program.Check(Math.Abs(min[2] - 198) < 1e-4 && Math.Abs(max[2] - 200) < 1e-4,
-                "and the model's Y became -Z, got " + min[2] + ".." + max[2], ref failures);
+                "and the model's Y became glTF's +Z, got " + min[2] + ".." + max[2], ref failures);
 
             Program.Check(root["buffers"].At(0)["byteLength"].AsNumber(0) > 0,
                 "the buffer declares a length", ref failures);

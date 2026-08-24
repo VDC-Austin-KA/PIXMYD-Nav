@@ -53,7 +53,11 @@ namespace PIXMYD_Nav.Core.Points
     {
         public string SourceDocument = "";
         public string SourceUnits = "";
-        public string TargetUnits = "";
+        /// <summary>Fixed at metres by the contract, and defaulted here rather
+        /// than left to each caller: an empty string shipped for a while and the
+        /// phone read it as "not metres", which put a units warning in front of
+        /// every user whose export was in metres all along.</summary>
+        public string TargetUnits = "Meters";
         public string UpAxis = "";
         public string OriginMode = "";
         public Vec3 AppliedOffset;

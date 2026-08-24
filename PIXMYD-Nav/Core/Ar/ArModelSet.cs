@@ -27,6 +27,15 @@ namespace PIXMYD_Nav.Core.Ar
         public string SourceUnits = "";
         public string TargetUnits = "Meters";
         public string UpAxis = "Z";
+        /// <summary>The document's up axis before the export turned its
+        /// coordinates into glTF's Y-up.
+        ///
+        /// Written because the turn is otherwise unrecoverable from the file:
+        /// UpAxis says "Y" afterwards whether the source was Y-up and untouched
+        /// or Z-up and rotated, and appliedOffset stays in the source frame
+        /// either way. A consumer bringing a points.json coordinate across has
+        /// to know which happened, and guessing costs a building height.</summary>
+        public string SourceUpAxis = "";
         public string OriginMode = "ModelMin";
         public Vec3 AppliedOffset;
         public string OffsetNote =
@@ -79,6 +88,7 @@ namespace PIXMYD_Nav.Core.Ar
                 .Set("navex:sourceUnits", SourceUnits)
                 .Set("navex:targetUnits", TargetUnits)
                 .Set("navex:upAxis", UpAxis)
+                .Set("navex:sourceUpAxis", string.IsNullOrEmpty(SourceUpAxis) ? UpAxis : SourceUpAxis)
                 .Set("navex:originMode", OriginMode)
                 .Set("navex:appliedOffset", Vec(AppliedOffset))
                 .Set("navex:offsetNote", OffsetNote)

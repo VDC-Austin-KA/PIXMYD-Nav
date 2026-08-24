@@ -45,5 +45,6 @@
     <Compile Include="../../PIXMYD-Nav/Core/Markers/MarkerGeometry.cs" />
     <Compile Include="../../PIXMYD-Nav/Core/Workspace/PixmydWorkspace.cs" />
     <Compile Include="../../PIXMYD-Nav/Core/Ar/GlbWriter.cs" />
+    <Compile Include="../../PIXMYD-Nav/Core/Ar/ArModelSet.cs" />
   </ItemGroup>
 </Project>

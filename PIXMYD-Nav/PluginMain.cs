@@ -27,10 +27,22 @@ namespace PIXMYD_Nav
     [AddInPlugin(AddInLocation.AddIn)]
     public class PluginMain : AddInPlugin
     {
+        private static MainWindow _openWindow;
+
         public override int Execute(params string[] parameters)
         {
             try
             {
+                // One window per session: pressing the ribbon button again
+                // brings the open one forward rather than stacking a second.
+                if (_openWindow != null)
+                {
+                    if (_openWindow.WindowState == WindowState.Minimized)
+                        _openWindow.WindowState = WindowState.Normal;
+                    _openWindow.Activate();
+                    return 0;
+                }
+
                 Document document = NavApp.ActiveDocument;
                 if (document == null || document.Models.Count == 0)
                 {
@@ -41,9 +53,14 @@ namespace PIXMYD_Nav
                 }
 
                 var window = new MainWindow();
+                _openWindow = window;
+                window.Closed += (s, e) => _openWindow = null;
 
-                // Parenting to the Navisworks main window keeps the dialog on top and
-                // stops it being lost behind the application.
+                // Parenting to the Navisworks main window keeps the tool on top
+                // of the application and stops it being lost behind it. The
+                // window stays open modelessly: placing points means clicking
+                // in the viewport while the list watches, which a modal dialog
+                // would block.
                 try
                 {
                     var helper = new System.Windows.Interop.WindowInteropHelper(window);
@@ -51,10 +68,10 @@ namespace PIXMYD_Nav
                 }
                 catch (Exception)
                 {
-                    // A parentless dialog still works; never block the export on this.
+                    // A parentless tool window still works; never block the export on this.
                 }
 
-                window.ShowDialog();
+                window.Show();
                 return 0;
             }
             catch (Exception ex)
