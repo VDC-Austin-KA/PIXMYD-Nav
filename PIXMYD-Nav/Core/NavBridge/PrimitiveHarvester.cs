@@ -161,17 +161,24 @@ namespace PIXMYD_Nav.Core.NavBridge
                     var path = pathObject as InwOaPath3;
                     if (path == null) continue;
 
+                    Vec3 color = ColorOf(path);
+
                     foreach (object fragmentObject in path.Fragments())
                     {
                         var fragment = fragmentObject as InwOaFragment3;
                         if (fragment == null) continue;
                         if (soup.TriangleCount >= triangleBudget) return soup;
 
-                        var sink = new PrimitiveSink(soup, scale, LocalToWorld(fragment), triangleBudget);
+                        var sink = new PrimitiveSink(soup, scale, LocalToWorld(fragment), triangleBudget, color);
                         try
                         {
-                            // eNONE: normals, colours and texture coordinates
-                            // cost time to generate and nothing here reads them.
+                            // eNONE: normals and texture coordinates cost time
+                            // to generate and nothing here reads them. Colour
+                            // comes from the item, not the vertex -- a
+                            // Navisworks appearance is applied per item and a
+                            // per-vertex colour is usually absent, so asking
+                            // for one would pay the tessellation cost to be
+                            // handed the same value back.
                             fragment.GenerateSimplePrimitives(nwEVertexProperty.eNONE, sink);
                         }
                         catch (Exception)
@@ -190,6 +197,36 @@ namespace PIXMYD_Nav.Core.NavBridge
             }
 
             return soup;
+        }
+
+        /// <summary>
+        /// The colour Navisworks is currently drawing an item in.
+        ///
+        /// The AR overlay used to be one flat blue-grey for every model, which
+        /// makes a plantroom in the phone a single undifferentiated shape --
+        /// the thing the operator is trying to find is the same colour as the
+        /// wall behind it. The document already knows: appearance overrides,
+        /// clash colouring and the source file's own materials all land on
+        /// <c>ActiveColor</c>, which is what the user is looking at on the
+        /// workstation and therefore what they expect to see on site.
+        ///
+        /// Falls back to the old flat colour rather than to black, because an
+        /// item with no geometry component or a reader that will not answer is
+        /// a normal item, not a broken one.
+        /// </summary>
+        private static Vec3 ColorOf(InwOaPath3 path)
+        {
+            try
+            {
+                ModelItem item = ComApiBridge.ToModelItem(path);
+                if (item == null || !item.HasGeometry) return MeshSoup.DefaultColor;
+                Color color = item.Geometry.ActiveColor;
+                return new Vec3(color.R, color.G, color.B);
+            }
+            catch (Exception)
+            {
+                return MeshSoup.DefaultColor;
+            }
         }
 
         /// <summary>
@@ -235,19 +272,22 @@ namespace PIXMYD_Nav.Core.NavBridge
             private readonly double _scale;
             private readonly double[] _matrix;
             private readonly int _triangleBudget;
+            private readonly Vec3 _color;
 
-            public PrimitiveSink(MeshSoup soup, double scale, double[] matrix, int triangleBudget)
+            public PrimitiveSink(
+                MeshSoup soup, double scale, double[] matrix, int triangleBudget, Vec3 color)
             {
                 _soup = soup;
                 _scale = scale == 0 ? 1 : scale;
                 _matrix = matrix;
                 _triangleBudget = triangleBudget;
+                _color = color;
             }
 
             public void Triangle(InwSimpleVertex v1, InwSimpleVertex v2, InwSimpleVertex v3)
             {
                 if (_soup.TriangleCount >= _triangleBudget) return;
-                _soup.AddTriangle(At(v1), At(v2), At(v3));
+                _soup.AddTriangle(At(v1), At(v2), At(v3), _color);
             }
 
             public void Line(InwSimpleVertex v1, InwSimpleVertex v2)

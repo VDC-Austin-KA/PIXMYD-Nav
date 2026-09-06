@@ -89,17 +89,24 @@ namespace PIXMYD_Nav.Core.Ar
 
             var positions = new List<float>();
             var normals = new List<float>();
+            var colors = new List<float>();
             var indices = new List<uint>();
-            Build(soup, options, positions, normals, indices);
+            Build(soup, options, positions, normals, colors, indices);
 
             int vertexCount = positions.Count / 3;
             bool hasNormals = options.IncludeNormals && normals.Count == positions.Count && vertexCount > 0;
+            // Only when the soup actually carries item colours. A buffer of the
+            // same grey repeated three times per triangle is half again the
+            // file for nothing, on geometry that has to cross a phone's Wi-Fi.
+            bool hasColors = soup != null && soup.HasColor
+                && colors.Count == positions.Count && vertexCount > 0;
 
             var binary = new MemoryStream();
             var views = new List<int[]>();  // offset, length, target
 
             int positionView = AddView(binary, views, Floats(positions), TargetArrayBuffer);
             int normalView = hasNormals ? AddView(binary, views, Floats(normals), TargetArrayBuffer) : -1;
+            int colorView = hasColors ? AddView(binary, views, Floats(colors), TargetArrayBuffer) : -1;
             int indexView = AddView(binary, views, UInts(indices), TargetElementArrayBuffer);
 
             float[] min, max;
@@ -109,7 +116,7 @@ namespace PIXMYD_Nav.Core.Ar
                 options.Name,
                 vertexCount,
                 indices.Count,
-                positionView, normalView, indexView,
+                positionView, normalView, colorView, indexView,
                 views,
                 (int)binary.Length,
                 min, max);
@@ -122,6 +129,7 @@ namespace PIXMYD_Nav.Core.Ar
             Options options,
             List<float> positions,
             List<float> normals,
+            List<float> colors,
             List<uint> indices)
         {
             if (soup == null) return;
@@ -143,6 +151,13 @@ namespace PIXMYD_Nav.Core.Ar
                 indices.Add(first);
                 indices.Add(first + 1);
                 indices.Add(first + 2);
+
+                // The colour is per vertex because glTF has nowhere else to put
+                // it, but it is really per item: all three corners of a face
+                // carry the colour the vertex they welded to was given.
+                Append(colors, soup.Colors[soup.Triangles[t]]);
+                Append(colors, soup.Colors[soup.Triangles[t + 1]]);
+                Append(colors, soup.Colors[soup.Triangles[t + 2]]);
 
                 if (!options.IncludeNormals) continue;
                 Vec3 n = Normal(a, b, c);
@@ -234,6 +249,7 @@ namespace PIXMYD_Nav.Core.Ar
             int indexCount,
             int positionView,
             int normalView,
+            int colorView,
             int indexView,
             List<int[]> views,
             int bufferLength,
@@ -245,13 +261,36 @@ namespace PIXMYD_Nav.Core.Ar
             sb.Append(",\"scene\":0,\"scenes\":[{\"nodes\":[0]}]");
             sb.Append(",\"nodes\":[{\"mesh\":0,\"name\":").Append(Quote(name)).Append("}]");
 
-            sb.Append(",\"meshes\":[{\"name\":").Append(Quote(name)).Append(",\"primitives\":[{\"attributes\":{\"POSITION\":0");
-            if (normalView >= 0) sb.Append(",\"NORMAL\":1");
-            sb.Append("},\"indices\":").Append(normalView >= 0 ? 2 : 1);
+            // Accessors are emitted below in exactly this order, so the
+            // numbering is computed once here rather than written as literals
+            // that quietly go wrong the moment an attribute is added.
+            int next = 0;
+            int positionAccessor = next++;
+            int normalAccessor = normalView >= 0 ? next++ : -1;
+            int colorAccessor = colorView >= 0 ? next++ : -1;
+            int indexAccessor = next++;
+
+            sb.Append(",\"meshes\":[{\"name\":").Append(Quote(name))
+              .Append(",\"primitives\":[{\"attributes\":{\"POSITION\":")
+              .Append(positionAccessor.ToString(CultureInfo.InvariantCulture));
+            if (normalAccessor >= 0)
+                sb.Append(",\"NORMAL\":").Append(normalAccessor.ToString(CultureInfo.InvariantCulture));
+            if (colorAccessor >= 0)
+                sb.Append(",\"COLOR_0\":").Append(colorAccessor.ToString(CultureInfo.InvariantCulture));
+            sb.Append("},\"indices\":").Append(indexAccessor.ToString(CultureInfo.InvariantCulture));
             sb.Append(",\"material\":0,\"mode\":4}]}]");
 
+            // glTF multiplies COLOR_0 into the base colour factor, so carrying
+            // item colours means the factor has to be white -- left at the old
+            // blue-grey it would tint every item towards it and a red valve
+            // would arrive mauve. With no colours the factor is the colour, and
+            // stays exactly what every earlier AR model used.
+            string baseColor = colorAccessor >= 0
+                ? "[1.0,1.0,1.0,1.0]"
+                : "[0.62,0.68,0.75,1.0]";
             sb.Append(",\"materials\":[{\"name\":\"PIXMYD\",\"pbrMetallicRoughness\":{")
-              .Append("\"baseColorFactor\":[0.62,0.68,0.75,1.0],\"metallicFactor\":0.0,\"roughnessFactor\":0.9}")
+              .Append("\"baseColorFactor\":").Append(baseColor)
+              .Append(",\"metallicFactor\":0.0,\"roughnessFactor\":0.9}")
               .Append(",\"doubleSided\":true}]");
 
             sb.Append(",\"accessors\":[");
@@ -260,6 +299,11 @@ namespace PIXMYD_Nav.Core.Ar
             {
                 sb.Append(',');
                 Accessor(sb, normalView, ComponentFloat, vertexCount, "VEC3", null, null, false);
+            }
+            if (colorView >= 0)
+            {
+                sb.Append(',');
+                Accessor(sb, colorView, ComponentFloat, vertexCount, "VEC3", null, null, false);
             }
             sb.Append(',');
             Accessor(sb, indexView, ComponentUnsignedInt, indexCount, "SCALAR", null, null, false);

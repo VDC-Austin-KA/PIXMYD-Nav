@@ -81,13 +81,27 @@ namespace PIXMYD_Nav.Core.Points
         /// a float tessellation introduces.</summary>
         public const double WeldTolerance = 0.0005;
 
+        /// <summary>The colour a vertex takes when nothing said otherwise --
+        /// the blue-grey the AR overlay used for every model before item
+        /// colours were carried.</summary>
+        public static readonly Vec3 DefaultColor = new Vec3(0.62, 0.68, 0.75);
+
         private readonly List<Vec3> _vertices = new List<Vec3>();
+        private readonly List<Vec3> _colors = new List<Vec3>();
         private readonly List<int> _triangles = new List<int>();
         private readonly List<int> _segments = new List<int>();
         private readonly List<Vec3> _snapPoints = new List<Vec3>();
         private readonly Dictionary<long, List<int>> _buckets = new Dictionary<long, List<int>>();
+        private bool _hasColor;
 
         public IList<Vec3> Vertices { get { return _vertices; } }
+        /// <summary>One RGB triple in 0..1 per vertex, always the same length as
+        /// <see cref="Vertices"/>.</summary>
+        public IList<Vec3> Colors { get { return _colors; } }
+        /// <summary>Whether anything ever supplied a colour. False means every
+        /// entry in <see cref="Colors"/> is the default and writing them out
+        /// would cost bytes to say nothing.</summary>
+        public bool HasColor { get { return _hasColor; } }
         /// <summary>Index triples into <see cref="Vertices"/>.</summary>
         public IList<int> Triangles { get { return _triangles; } }
         /// <summary>Index pairs into <see cref="Vertices"/>.</summary>
@@ -110,6 +124,33 @@ namespace PIXMYD_Nav.Core.Points
             // zero-area facet into the closest-point search.
             if (ia == ib || ib == ic || ia == ic) return;
             _triangles.Add(ia); _triangles.Add(ib); _triangles.Add(ic);
+        }
+
+        /// <summary>
+        /// A triangle that knows what colour its item is.
+        ///
+        /// Only vertices this call *creates* take the colour. A corner two
+        /// items share keeps the first one's, which is a decision rather than
+        /// an average: averaging a red valve with the grey pipe it sits on
+        /// gives a colour neither of them is, and the seam moves rather than
+        /// disappearing. Welding is what makes the model small enough to send,
+        /// so this is the price of that, paid at the boundary between two
+        /// items rather than across a face.
+        /// </summary>
+        public void AddTriangle(Vec3 a, Vec3 b, Vec3 c, Vec3 color)
+        {
+            int ia = WeldColored(a, color), ib = WeldColored(b, color), ic = WeldColored(c, color);
+            if (ia == ib || ib == ic || ia == ic) return;
+            _triangles.Add(ia); _triangles.Add(ib); _triangles.Add(ic);
+            _hasColor = true;
+        }
+
+        private int WeldColored(Vec3 p, Vec3 color)
+        {
+            int before = _vertices.Count;
+            int index = Weld(p);
+            if (_vertices.Count > before) _colors[index] = color;
+            return index;
         }
 
         public void AddSegment(Vec3 a, Vec3 b)
@@ -153,6 +194,10 @@ namespace PIXMYD_Nav.Core.Points
                     }
 
             _vertices.Add(p);
+            // Kept in step here rather than by the coloured overload, so the
+            // two lists cannot drift when a segment or a snap point creates a
+            // vertex that no triangle ever colours.
+            _colors.Add(DefaultColor);
             int added = _vertices.Count - 1;
             List<int> home;
             if (!_buckets.TryGetValue(key, out home))

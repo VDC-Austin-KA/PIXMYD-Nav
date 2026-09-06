@@ -48,6 +48,7 @@ namespace PIXMYD_Nav
             DxfCoordinatesAreAlwaysDecimal(ref failures);
             GlbIsAWellFormedContainer(ref failures);
             GlbDescribesWhatItContains(ref failures);
+            GlbCarriesItemColoursWhenThereAreAny(ref failures);
             ArModelRecordsTheUpAxisItStartedFrom(ref failures);
 
             return failures;
@@ -352,6 +353,73 @@ namespace PIXMYD_Nav
                 "an empty soup still writes a valid container", ref failures);
         }
 
+        /// <summary>
+        /// An AR model used to be one flat blue-grey, which makes a plantroom
+        /// on the phone a single undifferentiated shape. These pin the two
+        /// halves of carrying the document's own colours: that they appear when
+        /// there are any, and that the base colour factor goes white so the
+        /// multiply does not tint them.
+        /// </summary>
+        private static void GlbCarriesItemColoursWhenThereAreAny(ref int failures)
+        {
+            byte[] glb = GlbWriter.Render(ColouredCube(), new GlbWriter.Options { Name = "TowerA" });
+            uint jsonLength = BitConverter.ToUInt32(glb, 12);
+            JsonValue root = JsonReader.Parse(
+                Encoding.UTF8.GetString(glb, 20, (int)jsonLength).TrimEnd(' '));
+            Program.Check(root != null, "the coloured GLB's JSON parses", ref failures);
+            if (root == null) return;
+
+            JsonValue attributes = root["meshes"].At(0)["primitives"].At(0)["attributes"];
+            Program.Check(attributes["COLOR_0"].AsNumber(-1) >= 0,
+                "a coloured soup writes a COLOR_0 attribute", ref failures);
+            Program.Check(root["accessors"].Count == 4,
+                "positions, normals, colours and indices, got "
+                    + root["accessors"].Count, ref failures);
+
+            // The indices accessor has to have moved along with the colour one;
+            // hard-coded accessor numbers are exactly how this goes wrong.
+            int indexAccessor = (int)root["meshes"].At(0)["primitives"].At(0)["indices"].AsNumber(-1);
+            Program.Check(indexAccessor == 3, "the indices accessor is last, got " + indexAccessor,
+                ref failures);
+            Program.Check(root["accessors"].At(indexAccessor)["componentType"].AsNumber(0) == 5125,
+                "and it is still the unsigned int one", ref failures);
+
+            double[] factor = root["materials"].At(0)["pbrMetallicRoughness"]["baseColorFactor"]
+                .AsVector(4);
+            Program.Check(factor != null && factor[0] == 1 && factor[1] == 1 && factor[2] == 1,
+                "the base colour factor is white so COLOR_0 is not tinted", ref failures);
+
+            // And an uncoloured model is untouched: same three accessors, same
+            // blue-grey every AR model shipped with before.
+            byte[] plain = GlbWriter.Render(Cube(), new GlbWriter.Options());
+            uint plainJson = BitConverter.ToUInt32(plain, 12);
+            JsonValue plainRoot = JsonReader.Parse(
+                Encoding.UTF8.GetString(plain, 20, (int)plainJson).TrimEnd(' '));
+            Program.Check(plainRoot["accessors"].Count == 3,
+                "an uncoloured soup still writes three accessors", ref failures);
+            double[] plainFactor = plainRoot["materials"].At(0)["pbrMetallicRoughness"]
+                ["baseColorFactor"].AsVector(4);
+            Program.Check(plainFactor != null && Math.Abs(plainFactor[0] - 0.62) < 1e-9,
+                "and keeps the flat blue-grey", ref failures);
+
+            // Welding is what keeps the model small enough to send, so where
+            // two items meet one colour has to win. It is the first, not an
+            // average of the two -- a red valve averaged into the grey pipe it
+            // sits on gives a colour neither of them is.
+            var shared = new MeshSoup();
+            var red = new Vec3(1, 0, 0);
+            var blue = new Vec3(0, 0, 1);
+            shared.AddTriangle(new Vec3(0, 0, 0), new Vec3(1, 0, 0), new Vec3(0, 1, 0), red);
+            shared.AddTriangle(new Vec3(1, 0, 0), new Vec3(0, 1, 0), new Vec3(1, 1, 0), blue);
+
+            Program.Check(shared.Colors.Count == shared.Vertices.Count,
+                "there is exactly one colour per vertex", ref failures);
+            Program.Check(shared.Colors[1].X == 1 && shared.Colors[1].Z == 0,
+                "a corner two items share keeps the first item's colour", ref failures);
+            Program.Check(shared.Colors[3].Z == 1 && shared.Colors[3].X == 0,
+                "and the corner only the second item has takes its own", ref failures);
+        }
+
         // MARK: - Fixtures
 
         /// <summary>A 2 m cube from the origin, as 12 triangles.</summary>
@@ -373,6 +441,29 @@ namespace PIXMYD_Nav
                 new[] { 3, 0, 4 }, new[] { 3, 4, 7 }
             };
             foreach (int[] f in faces) soup.AddTriangle(c[f[0]], c[f[1]], c[f[2]]);
+            return soup;
+        }
+
+        /// <summary>The same cube, told what colour it is.</summary>
+        private static MeshSoup ColouredCube()
+        {
+            var soup = new MeshSoup();
+            var c = new Vec3[]
+            {
+                new Vec3(0, 0, 0), new Vec3(2, 0, 0), new Vec3(2, 2, 0), new Vec3(0, 2, 0),
+                new Vec3(0, 0, 2), new Vec3(2, 0, 2), new Vec3(2, 2, 2), new Vec3(0, 2, 2)
+            };
+            var faces = new int[][]
+            {
+                new[] { 0, 2, 1 }, new[] { 0, 3, 2 },
+                new[] { 4, 5, 6 }, new[] { 4, 6, 7 },
+                new[] { 0, 1, 5 }, new[] { 0, 5, 4 },
+                new[] { 1, 2, 6 }, new[] { 1, 6, 5 },
+                new[] { 2, 3, 7 }, new[] { 2, 7, 6 },
+                new[] { 3, 0, 4 }, new[] { 3, 4, 7 }
+            };
+            var red = new Vec3(0.8, 0.1, 0.1);
+            foreach (int[] f in faces) soup.AddTriangle(c[f[0]], c[f[1]], c[f[2]], red);
             return soup;
         }
 
