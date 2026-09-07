@@ -28,6 +28,7 @@
     <Compile Include="CaptureTests.cs" />
     <Compile Include="AlignmentTests.cs" />
     <Compile Include="WorkspaceTests.cs" />
+    <Compile Include="NwcTests.cs" />
     <Compile Include="../../PIXMYD-Nav/Core/Points/PointSet.cs" />
     <Compile Include="../../PIXMYD-Nav/Core/Points/LevelName.cs" />
     <Compile Include="../../PIXMYD-Nav/Core/Markers/QrEncoder.cs" />
@@ -46,5 +47,7 @@
     <Compile Include="../../PIXMYD-Nav/Core/Workspace/PixmydWorkspace.cs" />
     <Compile Include="../../PIXMYD-Nav/Core/Ar/GlbWriter.cs" />
     <Compile Include="../../PIXMYD-Nav/Core/Ar/ArModelSet.cs" />
+    <Compile Include="../../PIXMYD-Nav/Core/Nwc/NwcApi.cs" />
+    <Compile Include="../../PIXMYD-Nav/Core/Nwc/NwcMesh.cs" />
   </ItemGroup>
 </Project>
