@@ -309,13 +309,11 @@ namespace PIXMYD_Nav
 
         private void OnOpenCaptureFolder(object sender, RoutedEventArgs e)
         {
-            using (var dialog = new System.Windows.Forms.FolderBrowserDialog())
-            {
-                dialog.Description = "Pick the folder holding capture.json";
-                if (_workspace != null) dialog.SelectedPath = _workspace.Import;
-                if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
-                _pendingCaptureFolder = dialog.SelectedPath;
-            }
+            string picked = FolderPrompt.Pick(
+                "Pick the folder holding capture.json",
+                _workspace != null ? _workspace.Import : null);
+            if (string.IsNullOrEmpty(picked)) return;
+            _pendingCaptureFolder = picked;
             CaptureReviewButton.IsEnabled = true;
             DescribePendingCapture();
         }

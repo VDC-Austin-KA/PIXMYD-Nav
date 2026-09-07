@@ -169,13 +169,11 @@ namespace PIXMYD_Nav
 
         private void OnBrowseWorkspace(object sender, RoutedEventArgs e)
         {
-            using (var dialog = new System.Windows.Forms.FolderBrowserDialog())
-            {
-                dialog.Description = "Pick the PIXMYD folder for this model";
-                if (!string.IsNullOrWhiteSpace(WorkspaceBox.Text)) dialog.SelectedPath = WorkspaceBox.Text.Trim();
-                if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
-                WorkspaceBox.Text = dialog.SelectedPath;
-            }
+            string picked = FolderPrompt.Pick(
+                "Pick the PIXMYD folder for this model",
+                WorkspaceBox.Text != null ? WorkspaceBox.Text.Trim() : null);
+            if (string.IsNullOrEmpty(picked)) return;
+            WorkspaceBox.Text = picked;
             UseWorkspace(WorkspaceBox.Text.Trim());
         }
 

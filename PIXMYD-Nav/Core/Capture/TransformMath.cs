@@ -200,6 +200,54 @@ namespace PIXMYD_Nav.Core.Capture
             return result;
         }
 
+        /// <summary>
+        /// Shift a placement along the document's own axes.
+        ///
+        /// Applied *after* the placement rather than before it, so the numbers
+        /// on the buttons mean what the user reads them to mean: +1 in X is one
+        /// unit east in the model, not one unit along whatever direction the
+        /// scan happens to be facing. Pre-multiplying would make every nudge
+        /// depend on the rotation already applied, and the same button would
+        /// move the model a different way on every scan.
+        /// </summary>
+        public static double[] Nudged(double[] m, double dx, double dy, double dz)
+        {
+            if (m == null || m.Length != 16) return m;
+            var copy = (double[])m.Clone();
+            copy[12] += dx;
+            copy[13] += dy;
+            copy[14] += dz;
+            return copy;
+        }
+
+        /// <summary>
+        /// Turn a placement about a pivot, by an angle in degrees.
+        /// </summary>
+        /// <param name="pivot">
+        /// The point to turn about, in document coordinates -- normally the
+        /// placed model's own centre. Turning about the document origin instead
+        /// swings a building across the site for a one-degree correction, which
+        /// is not what anybody means by "rotate it slightly", and on a
+        /// georeferenced model the origin can be kilometres away.
+        /// Null is treated as the origin, which is correct only when the model
+        /// is already there.
+        /// </param>
+        public static double[] Turned(double[] m, double[] axis, double degrees, double[] pivot)
+        {
+            if (m == null || m.Length != 16) return m;
+
+            double[] p = pivot != null && pivot.Length == 3 ? pivot : new double[] { 0, 0, 0 };
+            double radians = degrees * Math.PI / 180.0;
+
+            // T(p) . R . T(-p), then the existing placement inside it.
+            double[] toOrigin = Compose(
+                new double[] { 0, 0, 1 }, 0, new double[] { -p[0], -p[1], -p[2] });
+            double[] rotation = Compose(axis, radians, new double[] { 0, 0, 0 });
+            double[] back = Compose(new double[] { 0, 0, 1 }, 0, new double[] { p[0], p[1], p[2] });
+
+            return Multiply(Multiply(back, Multiply(rotation, toOrigin)), m);
+        }
+
         /// <summary>Scale the translation column, leaving the rotation alone.
         /// Used when a transform solved in metres has to act on a document in
         /// millimetres or feet.</summary>

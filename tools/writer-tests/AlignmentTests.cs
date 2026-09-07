@@ -28,6 +28,8 @@ namespace PIXMYD_Nav
 
             TransformRoundTrip(ref failures);
             FbxImportBasisUndoesTheReadersTurn(ref failures);
+            NudgeMovesAlongTheDocumentAxes(ref failures);
+            TurnHoldsThePivotStill(ref failures);
             GravitySolveRecoversAKnownTransform(ref failures);
             GravitySolveNeedsTwoPointsAndAHorizontalBaseline(ref failures);
             GravitySolveAgreesWithHornOnCleanControl(ref failures);
@@ -40,6 +42,87 @@ namespace PIXMYD_Nav
             ReadsAPointSetThePhonePlaced(ref failures);
 
             return failures;
+        }
+
+        /// <summary>
+        /// A nudge means the same thing whatever the scan's heading.
+        ///
+        /// The buttons say +1 in X, so +1 in X is one unit east in the model.
+        /// Pre-multiplying instead would send the model one unit along whatever
+        /// direction it happens to face, and the same button would do something
+        /// different on every scan.
+        /// </summary>
+        private static void NudgeMovesAlongTheDocumentAxes(ref int failures)
+        {
+            // A placement already turned 90 degrees about Z, so a rotation-
+            // dependent shift would be caught: it would move in Y, not X.
+            double[] placed = TransformMath.Compose(
+                new double[] { 0, 0, 1 }, Math.PI / 2, new double[] { 10, 20, 30 });
+
+            double[] moved = TransformMath.Nudged(placed, 1, 0, 0);
+            Program.Check(Near(moved[12], 11) && Near(moved[13], 20) && Near(moved[14], 30),
+                "a +1 X nudge moves +1 in the document's X, got "
+                    + moved[12] + "," + moved[13] + "," + moved[14], ref failures);
+
+            // The rotation is untouched: nudging is not re-solving.
+            for (int i = 0; i < 12; i++)
+                Program.Check(Near(moved[i], placed[i]),
+                    "nudging changed the rotation at " + i, ref failures);
+
+            // And it undoes exactly, so a wrong tap costs nothing.
+            double[] back = TransformMath.Nudged(
+                TransformMath.Nudged(placed, 0.1, -1, 10), -0.1, 1, -10);
+            for (int i = 0; i < 16; i++)
+                Program.Check(Near(back[i], placed[i]),
+                    "a nudge and its opposite did not cancel at " + i, ref failures);
+        }
+
+        /// <summary>
+        /// Turning is about the model, not about the document origin.
+        ///
+        /// On a georeferenced model the origin can be kilometres away, and a
+        /// one-degree correction about it throws the scan out of the building.
+        /// </summary>
+        private static void TurnHoldsThePivotStill(ref int failures)
+        {
+            double[] pivot = new double[] { 1000, 2000, 5 };
+            double[] placed = TransformMath.Compose(
+                new double[] { 0, 0, 1 }, 0, new double[] { 1000, 2000, 5 });
+
+            double[] turned = TransformMath.Turned(placed, new double[] { 0, 0, 1 }, 10, pivot);
+            Program.Check(
+                Near(turned[12], pivot[0]) && Near(turned[13], pivot[1]) && Near(turned[14], pivot[2]),
+                "a model sitting on the pivot must not move when turned about it, got "
+                    + turned[12] + "," + turned[13] + "," + turned[14], ref failures);
+
+            // Degrees, not radians: a quarter turn about Z sends +X to +Y.
+            double[] quarter = TransformMath.Turned(
+                TransformMath.Compose(new double[] { 0, 0, 1 }, 0, new double[] { 1, 0, 0 }),
+                new double[] { 0, 0, 1 }, 90, new double[] { 0, 0, 0 });
+            Program.Check(Near(quarter[12], 0) && Near(quarter[13], 1),
+                "90 must be degrees: (1,0,0) turns to (0,1,0), got "
+                    + quarter[12] + "," + quarter[13], ref failures);
+
+            // Turning about the origin instead would have moved this model by
+            // hundreds of units; about its own pivot it moves by none. That gap
+            // is the whole reason the parameter exists.
+            double[] aboutOrigin = TransformMath.Turned(
+                placed, new double[] { 0, 0, 1 }, 10, null);
+            double slid = Math.Sqrt(
+                Math.Pow(aboutOrigin[12] - pivot[0], 2) + Math.Pow(aboutOrigin[13] - pivot[1], 2));
+            Program.Check(slid > 100,
+                "turning about the origin should visibly slide a far-out model", ref failures);
+
+            // And it undoes exactly.
+            double[] back = TransformMath.Turned(turned, new double[] { 0, 0, 1 }, -10, pivot);
+            for (int i = 0; i < 16; i++)
+                Program.Check(Near(back[i], placed[i]),
+                    "a turn and its opposite did not cancel at " + i, ref failures);
+        }
+
+        private static bool Near(double a, double b)
+        {
+            return Math.Abs(a - b) < 1e-9;
         }
 
         // MARK: - TransformMath
