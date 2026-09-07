@@ -57,12 +57,67 @@ namespace PIXMYD_Nav.Core.Workspace
         public string Export { get { return Path.Combine(Root, ExportFolderName); } }
         public string Import { get { return Path.Combine(Root, ImportFolderName); } }
 
-        /// <summary>Where the plugin puts a workspace when the user has not picked one.</summary>
+        /// <summary>
+        /// Where the plugin puts a workspace when the user has not picked one.
+        ///
+        /// The user's profile folder, deliberately not Documents. Windows'
+        /// Known Folder Move redirects Documents, Desktop and Pictures into
+        /// OneDrive on a great many machines, and a scan workspace is the worst
+        /// possible thing to put in a syncing folder: captures arrive as tens
+        /// of megabytes at a time and are read by Navisworks immediately, so
+        /// the file is being uploaded exactly while something tries to open it.
+        /// Navisworks' own words for that are "the contents are corrupt or it
+        /// is currently unavailable", which sends you looking at the file.
+        ///
+        /// The profile root is visible, needs no elevation, and is not one of
+        /// the three folders OneDrive redirects.
+        /// </summary>
         public static string DefaultRoot()
         {
             return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                 "PIXMYD-Nav");
+        }
+
+        /// <summary>
+        /// Whether a path sits inside a cloud-synced folder, as far as the
+        /// environment admits.
+        ///
+        /// Checked against OneDrive's own environment variables rather than by
+        /// looking for the word in the path: a folder called "OneDrive Backup"
+        /// is not synced, and a redirected Documents folder does not have to
+        /// have OneDrive in its name.
+        ///
+        /// Advisory, not a refusal. Somebody may have a good reason, and the
+        /// plugin's job is to say what it costs, not to overrule them.
+        /// </summary>
+        public static bool LooksCloudSynced(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return false;
+
+            string full;
+            try { full = Path.GetFullPath(path); }
+            catch (Exception) { return false; }
+
+            foreach (string name in new[] { "OneDrive", "OneDriveCommercial", "OneDriveConsumer" })
+            {
+                string root;
+                try { root = Environment.GetEnvironmentVariable(name); }
+                catch (Exception) { continue; }
+                if (string.IsNullOrWhiteSpace(root)) continue;
+
+                string prefix;
+                try { prefix = Path.GetFullPath(root); }
+                catch (Exception) { continue; }
+                prefix = prefix.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+                // Prefix, plus a separator, so C:\OneDriveOther does not match
+                // C:\OneDrive.
+                if (full.Equals(prefix, StringComparison.OrdinalIgnoreCase)) return true;
+                if (full.StartsWith(prefix + Path.DirectorySeparatorChar,
+                                    StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
         }
 
         /// <summary>

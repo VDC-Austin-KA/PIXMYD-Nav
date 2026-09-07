@@ -43,6 +43,7 @@ namespace PIXMYD_Nav
                 try { Directory.Delete(root, true); } catch (Exception) { }
             }
 
+            WorkspaceStaysOutOfSyncedFolders(ref failures);
             MarkersCarryPointIdsAsLayers(ref failures);
             MarkerGlyphsAreClosedAndCentred(ref failures);
             DxfCoordinatesAreAlwaysDecimal(ref failures);
@@ -275,6 +276,41 @@ namespace PIXMYD_Nav
                 MarkerShape.Cross, 0.05);
             Program.Check(withNan.IndexOf("NaN", StringComparison.OrdinalIgnoreCase) < 0,
                 "a non-finite coordinate degrades to zero rather than poisoning the file", ref failures);
+        }
+
+        /// <summary>
+        /// A scan workspace must not default into a syncing folder.
+        ///
+        /// Documents is redirected into OneDrive by Known Folder Move on a
+        /// great many machines, and captures land as tens of megabytes that
+        /// Navisworks opens immediately -- so the file uploads while something
+        /// reads it. That failure reports as "the contents are corrupt or it is
+        /// currently unavailable", which sends you looking at the file.
+        /// </summary>
+        private static void WorkspaceStaysOutOfSyncedFolders(ref int failures)
+        {
+            string root = PixmydWorkspace.DefaultRoot();
+            string profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            Program.Check(root.StartsWith(profile, StringComparison.OrdinalIgnoreCase),
+                "the default workspace lives under the user profile, got " + root, ref failures);
+            Program.Check(!PixmydWorkspace.LooksCloudSynced(root),
+                "and the default is not itself inside a synced folder", ref failures);
+
+            string oneDrive = Environment.GetEnvironmentVariable("OneDrive");
+            if (!string.IsNullOrWhiteSpace(oneDrive))
+            {
+                Program.Check(
+                    PixmydWorkspace.LooksCloudSynced(
+                        System.IO.Path.Combine(oneDrive, "Documents", "PIXMYD-Nav")),
+                    "a workspace inside OneDrive is recognised as synced", ref failures);
+                Program.Check(!PixmydWorkspace.LooksCloudSynced(oneDrive + "Other"),
+                    "a sibling folder whose name merely starts the same is not", ref failures);
+            }
+
+            Program.Check(!PixmydWorkspace.LooksCloudSynced(null),
+                "no path is not a synced path", ref failures);
+            Program.Check(!PixmydWorkspace.LooksCloudSynced(@"C:\PIXMYD-Nav"),
+                "a plain local folder is not synced", ref failures);
         }
 
         // MARK: - GLB

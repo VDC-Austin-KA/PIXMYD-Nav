@@ -163,6 +163,22 @@ namespace PIXMYD_Nav
                 StatusText.Text = "That folder cannot be used: " + ex.Message;
             }
 
+            // Advisory, not a refusal. The default no longer lands here, but a
+            // workspace configured before that still can, and a synced folder
+            // is the worst place for this traffic: a capture arrives as tens of
+            // megabytes and Navisworks opens it immediately, so the file is
+            // uploading while something reads it. Navisworks calls that "the
+            // contents are corrupt or it is currently unavailable", which sends
+            // you looking at the file rather than at the folder.
+            if (_workspace != null && PixmydWorkspace.LooksCloudSynced(_workspace.Root))
+            {
+                StatusText.Text =
+                    "This workspace is inside a cloud-synced folder. Scans can fail to open "
+                    + "while they are still uploading — a folder under "
+                    + Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+                    + " avoids it.";
+            }
+
             RefreshExportList();
             RefreshImportList();
         }
