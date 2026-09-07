@@ -144,6 +144,11 @@
     <Compile Include="Core\NavBridge\PrimitiveHarvester.cs" />
     <Compile Include="Core\NavBridge\PointPicker.cs" />
     <Compile Include="Core\NavBridge\ModelPlacer.cs" />
+    <Compile Include="Core\NavBridge\FolderPrompt.cs" />
+    <Compile Include="Core\Nwc\NwcApi.cs" />
+    <Compile Include="Core\Nwc\NwcMesh.cs" />
+    <Compile Include="Core\Nwc\NwcWriter.cs" />
+    <Compile Include="Core\Nwc\ObjReader.cs" />
     <Compile Include="MainWindow.xaml.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
@@ -151,6 +156,27 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>
+  </ItemGroup>
+
+  <!--
+    The nwcreate exporter runtime, copied beside the plugin.
+
+    NwcWriter loads it by full path from the plugin folder, and nwcreate finds
+    nwcreate_data relative to itself, so the two have to travel together and
+    end up in the same directory as PIXMYD-Nav.dll. This is the exporter
+    build, not the lcodpnwcreate.dll already inside Navisworks: that one is
+    the loader build, and a loader is handed its scene rather than creating
+    one, so its LiNwcSceneCreate refuses.
+  -->
+  <ItemGroup>
+    <Content Include="..\installer\V25\nwcreate_21.dll">
+      <Link>nwcreate_21.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\installer\V25\nwcreate_data\**\*">
+      <Link>nwcreate_data\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

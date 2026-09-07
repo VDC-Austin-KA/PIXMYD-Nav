@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using PIXMYD_Nav.Core.Points;
 
 namespace PIXMYD_Nav.Core.Nwc
@@ -40,18 +41,59 @@ namespace PIXMYD_Nav.Core.Nwc
         private static bool _initialised;
         private static readonly object _gate = new object();
 
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr LoadLibraryW(
+            [MarshalAs(UnmanagedType.LPWStr)] string path);
+
+        /// <summary>Where nwcreate and its data folder live: beside this
+        /// assembly, because that is what we ship and what the installer
+        /// puts down.</summary>
+        private static string PluginFolder()
+        {
+            try
+            {
+                string here = typeof(NwcWriter).Assembly.Location;
+                return string.IsNullOrEmpty(here) ? "" : Path.GetDirectoryName(here);
+            }
+            catch (Exception) { return ""; }
+        }
+
         /// <summary>
         /// Start the API once per process.
         ///
-        /// `LiNwcApiInitialise` must be called before anything else and is not
-        /// re-entrant, and this plugin can be driven from more than one button,
-        /// so the flag and the lock are both load-bearing.
+        /// The DLL is loaded by full path first. P/Invoke would otherwise
+        /// search the process directory, which is Navisworks own, and a plugin
+        /// folder is not on that search path. Loading it by hand puts the
+        /// right module in the process under the right name, and every
+        /// DllImport after this resolves to it.
         /// </summary>
         private static string Initialise()
         {
             lock (_gate)
             {
                 if (_initialised) return null;
+
+                string folder = PluginFolder();
+                string dll = string.IsNullOrEmpty(folder)
+                    ? "" : Path.Combine(folder, NwcApi.Dll);
+
+                if (string.IsNullOrEmpty(dll) || !File.Exists(dll))
+                    return "The NWC writer is missing: " + NwcApi.Dll + " should be installed "
+                         + "beside the plugin, in " + (string.IsNullOrEmpty(folder)
+                             ? "the plugin folder" : folder) + ".";
+
+                // nwcreate looks for this beside itself, and the session
+                // licence is in it. Without the folder it starts and then
+                // fails later, somewhere much less legible.
+                string data = Path.Combine(folder, "nwcreate_data");
+                if (!Directory.Exists(data))
+                    return "The NWC writer is missing its nwcreate_data folder, which has to "
+                         + "sit beside " + NwcApi.Dll + " in " + folder + ".";
+
+                if (LoadLibraryW(dll) == IntPtr.Zero)
+                    return "Windows would not load " + dll + " (error "
+                         + Marshal.GetLastWin32Error() + ").";
+
                 NwcApi.ApiStatus status;
                 try
                 {
@@ -59,29 +101,101 @@ namespace PIXMYD_Nav.Core.Nwc
                 }
                 catch (DllNotFoundException)
                 {
-                    return "The nwcreate library that writes NWC files is not in this "
-                         + "Navisworks installation.";
+                    return "Windows loaded " + NwcApi.Dll + " but .NET could not bind to it.";
                 }
-                catch (EntryPointNotFoundException)
+                catch (EntryPointNotFoundException ex)
                 {
-                    // No initialiser in this copy of the library, which is what
-                    // being inside Navisworks looks like: the host loaded and
-                    // started nwcreate before this plugin existed, so there is
-                    // nothing left to start and the entry point is not offered.
-                    // Every function the writer actually calls is exported.
-                    _initialised = true;
-                    return null;
+                    // The old failure, worth naming rather than swallowing: it
+                    // means the loader build got loaded instead of the exporter
+                    // build, and the loader build cannot create a scene at all.
+                    return "The nwcreate beside this plugin is the loader build, which cannot "
+                         + "author a scene. Install the exporter build from the Navisworks "
+                         + "SDK (" + NwcApi.Dll + "). " + ex.Message;
                 }
 
                 if (status != NwcApi.ApiStatus.Ok)
                 {
                     return status == NwcApi.ApiStatus.NotLicensed
-                        ? "Navisworks did not license the NWC writer on this machine."
+                        ? "nwcreate is not licensed on this machine, so it will not write an NWC."
                         : "The NWC writer would not start (status " + status + ").";
                 }
                 _initialised = true;
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Attach the atlas to a node as a material, or do nothing when there
+        /// is no atlas to attach.
+        ///
+        /// Two assets, connected. A Generic material has a diffuse slot that
+        /// takes either a colour or a connected texture; a UnifiedBitmap is a
+        /// texture that names an image file. Connecting the second into the
+        /// first is what puts the photograph on the mesh instead of a flat
+        /// grey. LiNwcMaterial cannot do it -- it carries colours only -- and
+        /// the Presenter material that used to is marked OBSOLETE, every
+        /// setter documented as "Does nothing."
+        ///
+        /// Every handle created here is destroyed here. nwcreate reference
+        /// counts, so destroying after attaching releases our claim on the
+        /// object rather than the object.
+        /// </summary>
+        private static void Paint(IntPtr node, NwcMesh mesh)
+        {
+            if (!mesh.HasTexture) return;
+
+            IntPtr bitmap = IntPtr.Zero, bitmapFile = IntPtr.Zero;
+            IntPtr material = IntPtr.Zero, generic = IntPtr.Zero, diffuse = IntPtr.Zero;
+            try
+            {
+                bitmapFile = NwcApi.LiNwcAutodeskAssetDataCreate();
+                if (bitmapFile == IntPtr.Zero) return;
+                NwcApi.LiNwcAutodeskAssetDataSetIdentifier(bitmapFile, NwcApi.BitmapProperty);
+                NwcApi.LiNwcAutodeskAssetDataSetURI(bitmapFile, mesh.TexturePath);
+
+                bitmap = NwcApi.LiNwcAutodeskAssetCreate();
+                if (bitmap == IntPtr.Zero) return;
+                NwcApi.LiNwcAutodeskAssetSetLibraryIdentifier(bitmap, NwcApi.AssetLibrary);
+                NwcApi.LiNwcAutodeskAssetSetDefinitionIdentifier(bitmap, NwcApi.BitmapSchema);
+                NwcApi.LiNwcAutodeskAssetAddData(bitmap, bitmapFile);
+
+                diffuse = NwcApi.LiNwcAutodeskAssetDataCreate();
+                if (diffuse == IntPtr.Zero) return;
+                NwcApi.LiNwcAutodeskAssetDataSetIdentifier(diffuse, NwcApi.DiffuseProperty);
+                NwcApi.LiNwcAutodeskAssetDataSetTexture(diffuse);
+                NwcApi.LiNwcAutodeskAssetDataAddConnectedAsset(diffuse, bitmap);
+                NwcApi.LiNwcAutodeskAssetDataSetConnectedAssetEnabled(diffuse, true);
+
+                generic = NwcApi.LiNwcAutodeskAssetCreate();
+                if (generic == IntPtr.Zero) return;
+                NwcApi.LiNwcAutodeskAssetSetLibraryIdentifier(generic, NwcApi.AssetLibrary);
+                NwcApi.LiNwcAutodeskAssetSetDefinitionIdentifier(generic, NwcApi.GenericSchema);
+                NwcApi.LiNwcAutodeskAssetAddData(generic, diffuse);
+
+                material = NwcApi.LiNwcAutodeskMaterialCreate();
+                if (material == IntPtr.Zero) return;
+                NwcApi.LiNwcAutodeskMaterialSetMaterialAsset(material, generic);
+                NwcApi.LiNwcNodeAddAttribute(node, material);
+            }
+            catch (Exception)
+            {
+                // A mesh with no material is a worse model, not a failed one.
+                // The geometry is already written by the time this runs.
+            }
+            finally
+            {
+                Free(NwcApi.LiNwcAutodeskMaterialDestroy, material);
+                Free(NwcApi.LiNwcAutodeskAssetDestroy, generic);
+                Free(NwcApi.LiNwcAutodeskAssetDestroy, bitmap);
+                Free(NwcApi.LiNwcAutodeskAssetDataDestroy, diffuse);
+                Free(NwcApi.LiNwcAutodeskAssetDataDestroy, bitmapFile);
+            }
+        }
+
+        private static void Free(Action<IntPtr> destroy, IntPtr handle)
+        {
+            if (handle == IntPtr.Zero) return;
+            try { destroy(handle); } catch (Exception) { }
         }
 
         /// <summary>Write <paramref name="mesh"/> to <paramref name="path"/>.</summary>
@@ -162,6 +276,8 @@ namespace PIXMYD_Nav.Core.Nwc
                 NwcApi.LiNwcGeometryStreamEnd(stream);
                 NwcApi.LiNwcGeometryCloseStream(geometry, stream);
 
+                Paint(geometry, mesh);
+
                 // The scene takes the node; it is not ours to destroy after
                 // this, which is why `geometry` is cleared rather than freed
                 // in the finally below.
@@ -179,7 +295,10 @@ namespace PIXMYD_Nav.Core.Nwc
 
                 result.Ok = true;
                 result.Message = "Wrote " + Path.GetFileName(path) + " — "
-                               + mesh.TriangleCount + " triangles.";
+                               + mesh.TriangleCount + " triangles"
+                               + (mesh.HasTexture
+                                    ? ", textured with " + Path.GetFileName(mesh.TexturePath)
+                                    : mesh.HasColors ? ", vertex coloured" : "") + ".";
                 return result;
             }
             catch (Exception ex)

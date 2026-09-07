@@ -142,6 +142,31 @@ Local development against an installed Navisworks:
 msbuild PIXMYD-Nav\PIXMYD-Nav.csproj /p:Configuration=Release-NW2027 /p:Platform=x64
 ```
 
+### Installing
+
+The plugin folder has to carry three things, not one:
+
+```
+<Navisworks>\Plugins\PIXMYD-Nav\
+    PIXMYD-Nav.dll
+    nwcreate_21.dll
+    nwcreate_data\
+```
+
+`installer/V25` holds all of them, and a local build copies them to its output.
+
+`nwcreate_21.dll` is the exporter build of nwcreate, from the Navisworks SDK.
+It is deliberately *not* the `lcodpnwcreate.dll` already sitting in the
+Navisworks directory: that one is the loader build, and `LiNwcApi.h` is plain
+about the difference — "These functions must be called when writing an exporter
+from third party software. They should not be called when writing a file
+loader." A loader is handed its scene by the host, so the loader build exports
+no initialiser and its `LiNwcSceneCreate` refuses with "Loader can't create
+scene". Binding to it cost a long time; the header said so all along.
+
+`nwcreate_data` is found by nwcreate relative to itself and holds the session
+licence, so it travels beside the DLL or nothing works.
+
 Everything can also be checked with no Windows and no Navisworks at all:
 
 ```
@@ -192,6 +217,7 @@ PIXMYD-Nav/Core/Markers      QR encoding, the printable page, marker geometry
 PIXMYD-Nav/Core/Capture      registration, tolerance bands, transform maths
 PIXMYD-Nav/Core/Transfer     the pairing ticket, manifest and local server
 PIXMYD-Nav/Core/Ar           the AR bundle and its GLB writer
+PIXMYD-Nav/Core/Nwc          the OBJ reader and the NWC writer over nwcreate
 PIXMYD-Nav/Core/NavBridge    everything that touches Autodesk.Navisworks.Api
 PIXMYD-Nav/Core/Json         a dependency-free JSON reader
 tools/typecheck              compiles the whole add-in without Navisworks

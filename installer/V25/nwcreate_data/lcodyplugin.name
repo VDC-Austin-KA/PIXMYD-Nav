@@ -1,0 +1,696 @@
+﻿# This file uses UTF8 encoding. Lines starting with # or $, or ending with =
+# do NOT need translating.
+$utf8
+
+lcodpody_nwc=
+${nwfile} Cache
+
+lcodpody_nwd=
+${nwfile}
+
+lcodpody_nwd_2015=
+${nwfile} 2015
+
+lcodpody_nwd_2024=
+${nwfile} 2016-2024
+
+lcodpody_nwf=
+${nwfile} File Set
+
+lcodpody_nwf_2015=
+${nwfile} 2015 File Set
+
+lcodpody_nwf_2024=
+${nwfile} 2016-2024 File Set
+
+lcodpody_view=
+View
+
+lcodpody_password_required_and_no_impl=
+A password is required, but there is no interface to provide one.
+
+lcodpody_published_file_expired=
+File has expired
+
+lcodpody_license_expired=
+Your ${product} license has expired
+
+lcodpody_license_expires_%d=
+Your ${product} license expires in %d days
+
+lcodpody_license_type_0=
+UNREGISTERED VERSION
+
+lcodpody_license_type_2=
+NOT FOR RESALE
+
+lcodpody_license_type_3=
+EDUCATIONAL VERSION
+
+lcodpody_license_type_4=
+STUDENT VERSION
+
+lcodpody_merge_duplicates=
+Merging duplicate geometry...
+
+lcodpody_converting_model=
+Converting model...
+
+lcopfind_searching=
+Searching...
+
+lcopstate_progress=
+Working...
+
+lcopstate_progress_title=
+Working...
+
+lcopfileresolver_resolve_url_format=
+Downloading %s
+
+LcOpItemPropCreator=
+Creator
+
+lcodpody_current_anim_factory_name=
+Current Animation
+
+lcodpody_current_anim_no_anim=
+No animation is currently defined.
+
+lcodpody_collapse_composite_part=
+Composite Part
+
+lcodpody_collapse_all_group=
+Collapsed Contents
+
+LcOaCollapseType:0=
+None
+
+LcOaCollapseType:1=
+Composite Objects
+
+LcOaCollapseType:2=
+All Objects
+
+LcOaCollapseType:3=
+Layers
+
+LcOaCollapseType:4=
+Files
+
+lcodpody_compact_tree_tab=
+Compact
+
+lcodpody_properties_tree_tab=
+Properties
+
+lcodpody_selection_sets_tree_tab=
+Sets
+
+# notrans
+lcodpody_rule_category_default=
+<category>
+
+# notrans
+lcodpody_rule_property_default=
+<property>
+
+lcodpody_rule_name_param_1=
+Name
+
+lcodpody_rule_name_param_2=
+Internal Name
+
+lcodpody_reg_opt_cache_not_in_sync=
+The registry has changed in the background and the option cannot be set. Please restart the options editor.
+
+lcodpody_any_graphics_system=
+Any system
+
+lcodpody_autodesk_graphics_system=
+Autodesk graphics
+
+lcodpody_presenter_graphics_system=
+OpenGL graphics
+
+lcodpody_switch_system_%s_%s_%s=
+This file requested the use of %s, but you are currently using %s. Do you want to switch to %s?
+
+lcuopt.file_readers=
+File Readers
+
+lcuopt.export=
+Export
+
+lcuopt.interface=
+Interface
+
+lcuopt.tools=
+Tools
+
+lcuopt.tools.location=
+Locations
+
+lcuopt.tools.location.display=
+Show in User Interface
+
+lcuopt.interface.developer=
+Developer
+
+lcuopt.interface.developer.api=
+Api
+
+lcuopt.interface.developer.api.interface.developer.api.runaction_verbose=
+RunAction verbose mode
+
+lcuopt.interface.developer.show_properties=
+Show Internal Properties
+
+lcuopt.interface.developer.show_property_internal_names=
+Show Property Internal Names
+
+lcuopt.interface.developer.patchwork_mode=
+Patchwork Mode
+
+LcOpHyperlinksIconType:0=
+Text
+
+LcOpHyperlinksIconType:1=
+Icon
+
+lcuopt.interface.display.ogl.overlay_buffer=
+Overlay Buffer
+
+LcOmSpeedPropsOverlayBuffer:0=
+On
+
+LcOmSpeedPropsOverlayBuffer:1=
+Auto
+
+LcOmSpeedPropsOverlayBuffer:2=
+Off
+
+lcuopt:category=
+Category
+
+lcuopt:icon_type=
+Icon Type
+
+lcuopt:visible=
+Visible
+
+lcuopt:hide_icons_without_comment=
+Hide Icons Without Comment
+
+lcodpody_license_lost_%d_fmt=
+License has been lost. Please save your work. Shutting down in %d minutes...
+
+lcuopt.interface.reference_views=
+Reference Views
+
+lcuopt.interface.reference_views.marker_color=
+Marker Color
+
+lcuopt.interface.grids=
+Grids
+
+lcuopt.interface.grids.enabled=
+Enabled
+
+lcuopt.interface.grids.render_mode=
+Render Mode
+
+lcuopt.interface.grids.label_font_size=
+Label Font Size:
+
+lcuopt.interface.grids.colour_group=
+Colors
+
+lcuopt.interface.grids.colour_group.above_colour=
+Level Above:
+
+lcuopt.interface.grids.colour_group.below_colour=
+Level Below:
+
+lcuopt.interface.grids.colour_group.other_colour=
+Other Levels:
+
+lcuopt.interface.grids.xray=
+X-Ray Mode
+
+lcuopt.interface.alignments=
+Civil Alignments
+
+# The separator character used in the Station label.
+# This is the same as the "Station character" or "Chainage character" in Civil 3D
+lcuopt.interface.alignments.station_char=
+Station character
+
+LcOpCivilAlignmentStationCharacter:0=
+<none>
+
+# notrans
+LcOpCivilAlignmentStationCharacter:1=
++
+
+# notrans
+LcOpCivilAlignmentStationCharacter:2=
+-
+
+# notrans
+LcOpCivilAlignmentStationCharacter:3=
+_
+
+# notrans
+LcOpCivilAlignmentStationCharacter:4=
+/
+
+# notrans
+LcOpCivilAlignmentStationCharacter:5=
+C
+
+# notrans
+LcOpCivilAlignmentStationCharacter:6=
+K
+
+lcuopt.interface.alignments.line_color=
+Line color
+
+lcuopt.interface.alignments.label_color=
+Label color
+
+lcuopt.interface.measure.convert_to_redline_colour=
+Convert to Markup Color
+
+LcOpMeasureToRedlineColour:0=
+Markup
+
+LcOpMeasureToRedlineColour:1=
+Measurement
+
+lcodpody_plugin_dll_load_failure={
+A plugin failed to load. This could indicate a corrupt installation or an out-of-date plugin. The program will continue, but some functionality may be missing.
+
+%s
+}
+
+lcodpody_addin_dll_load_failure={
+The '%s' add-in failed to load. This could indicate a corrupt installation or an out-of-date add-in. Try reinstalling or updating the add-in. The program will continue, but some functionality may be missing.
+}
+
+lcodpody_nwcreate_dll_load_failure={
+The '%s' file loader plugin failed to load. This could indicate a corrupt installation or an out-of-date plugin. Try repairing the installation or updating the plugin.
+
+%s
+}
+
+lcodpody_auto_redline_viewpoint_edit=
+Create Markup Viewpoint
+
+# LcOpKernelResourceIds
+
+lcopkernel_res_0=
+???
+
+lcopkernel_res_1=
+Can't append a file set
+
+lcopkernel_res_2=
+No plugin exists that will open %ls
+
+lcopkernel_res_3={
+%ls could not be opened or is unavailable.
+
+It is recommended to re-open your model to avoid data loss.
+}
+
+lcopkernel_res_4={
+%ls could not be opened because the contents are corrupt or it is currently unavailable.
+
+It is recommended to re-open your model to avoid data loss.
+}
+
+lcopkernel_res_5=
+File %ls has an unknown version number
+
+lcopkernel_res_6=
+This application is not licensed to open %ls
+
+lcopkernel_res_7=
+Load of %ls was canceled
+
+lcopkernel_res_8=
+Can't load %ls because of an internal error
+
+lcopkernel_res_9=
+The update operation was canceled. Partial results will be displayed.
+
+lcopkernel_res_10=
+Can't find file %ls
+
+lcopkernel_res_11=
+No plugin exists that will save to %ls
+
+lcopkernel_res_12=
+Can't open %ls for writing
+
+lcopkernel_res_13=
+Out of disk space
+
+lcopkernel_res_14=
+The save was canceled
+
+lcopkernel_res_15=
+Failed to save %ls
+
+lcopkernel_res_16=
+Loading cache for %ls ...
+
+lcopkernel_res_17=
+Caching %ls ...
+
+lcopkernel_res_18=
+Loading %ls ...
+
+lcopkernel_res_19=
+Optimizing data from %ls for fast display
+
+lcopkernel_res_20=
+File
+
+lcopkernel_res_21=
+Combining models
+
+lcopkernel_res_22=
+Converting to ${nwfile} native format
+
+lcopkernel_res_23=
+Rebuilding
+
+lcopkernel_res_24=
+Hide/Required
+
+lcopkernel_res_25=
+Properties
+
+lcopkernel_res_26=
+Current View
+
+lcopkernel_res_27=
+Scene Lights
+
+lcopkernel_res_28=
+Selection
+
+lcopkernel_res_29=
+Override Transform
+
+lcopkernel_res_30=
+Override Appearance
+
+lcopkernel_res_31=
+Viewpoints
+
+lcopkernel_res_32=
+Scene
+
+lcopkernel_res_33=
+Thumbnail
+
+lcopkernel_res_34=
+Animation
+
+lcopkernel_res_35=
+Selection Sets
+
+lcopkernel_res_36=
+The current model includes a locked published file. You are not allowed to save it.
+
+lcopkernel_res_37=
+The current model includes a locked published file. You are not allowed to publish it.
+
+lcopkernel_res_38=
+You may only publish NWD files. %ls must have an nwd extension.
+
+lcopkernel_res_39=
+%ls is a currently loaded file. You may not publish to it.
+
+lcopkernel_res_40=
+You are not licensed to publish files.
+
+lcopkernel_res_41=
+This application is not licensed to open %ls
+
+lcopkernel_res_42=
+Refreshing %ls ...
+
+lcopkernel_res_43=
+There is not enough temporary disk space to open %ls. Clear out your Temp folder and try again.
+
+lcopkernel_res_44=
+A problem occurred after successfully saving. Please reload from %ls.
+
+lcopkernel_res_45=
+Orientation
+
+lcopkernel_res_46=
+There is not enough memory to open %ls. Increase the amount of available memory and try again.
+
+lcopkernel_res_47=
+Error code: %d
+
+lcopkernel_res_48=
+Comments
+
+lcopkernel_res_49=
+There is not enough memory to save %ls. Increase the amount of available memory and try again.
+
+lcopkernel_res_50=
+Failed to save %ls. An error was detected when attempting to page data in from disk. One of the currently opened files is corrupt.
+
+lcopkernel_res_51=
+Home View
+
+lcopkernel_res_52=
+%ls does not contain any 3D data.
+
+lcopkernel_res_53=
+%ls does not contain any 2D data.
+
+lcopkernel_res_54=
+This file does not contain the specified sheet.
+
+lcopkernel_res_55=
+Saving %ls ...
+
+lcopkernel_res_56=
+%ls contains additional sheets/models. Would you like to add them to the current project?
+
+lcopkernel_res_57=
+File is password protected. No password was supplied to decrypt the file.
+
+lcopkernel_res_58=
+The filename is invalid. Please try renaming the file.
+
+lcopkernel_res_59=
+The component required to load this file isn't installed. Please try installing it and try again.
+
+lcopkernel_untitled=
+Untitled
+
+LcOpToolElement=
+Tool
+
+LcOpGizmoElement=
+Transform Tool
+
+LcOpGeometryProperty=
+Geometry
+
+LcOpGeometryPropertyPrimitives=
+Primitives
+
+LcOpGeometryPropertyFragments=
+Fragments
+
+LcOpGeometryPropertyHasTriangles=
+Triangles
+
+LcOpGeometryPropertyHasLines=
+Lines
+
+LcOpGeometryPropertyHasPoints=
+Points
+
+LcOpGeometryPropertyHasSnapPoints=
+Snap Points
+
+LcOpGeometryPropertyHasText=
+Text
+
+LcOpGeometryPropertySolid=
+Solid
+
+LcOpKernelEx_avatar_dummy=
+Dummy
+
+LcOpKernelEx_avatar_human=
+Human 1
+
+LcOpKernelEx_avatar_hardhat=
+Human 2
+
+LcOpKernelEx_avatar_none=
+None
+
+LcOpKernelEx_avatar_construction_worker=
+Construction Worker
+
+LcOpKernelEx_avatar_high_visibility=
+High Visibility
+
+LcOpKernelEx_avatar_office_female=
+Office Female
+
+LcOpKernelEx_avatar_office_female_hardhat=
+Office Female Hardhat
+
+LcOpKernelEx_avatar_office_male=
+Office Male
+
+LcOpKernelEx_avatar_office_male_hardhat=
+Office Male Hardhat
+
+LcOpKernelEx_avatar_protective_clothing=
+Protective Clothing
+
+LcOpKernelEx_select_surface=
+To use Lock, click a surface in the model.
+
+LcOpKernelEx_quick_zoom_in=
+To zoom, press + or – then press and hold Enter.
+
+LcOpHudRenderHandler_render_rapidrt_runing_mark=
+Interactive Ray Trace is Running
+
+LcOpHudRenderHandler_render_rapidrt_finished_mark=
+Interactive Ray Trace is Finished
+
+LcOpZoneItem_TypeName_0=
+Site
+
+LcOpZoneItem_TypeName_1=
+Building
+
+LcOpZoneItem_TypeName_2=
+Floor
+
+LcOpZoneItem_TypeName_3=
+Area
+
+LcOpZoneItem_TypeName_4=
+Room
+
+LcOpZoneItem_TypeName_5=
+Other
+
+LcOpZoneTool_Create_Zone=
+Create Location
+
+LcOpZoneTool_Edit_Zone=
+Edit Location
+
+LcOpZoneTool_Default_Zone_Name=
+Location
+
+LcOpSavedViewOptimiserMessage=
+Optimising saved viewpoints...
+
+LcOpNodeOptimiserMessage=
+Optimising model items...
+
+LcOpFragmentOptimiserMessage=
+Optimising fragments...
+
+# LcOpDiff
+
+LcOpDiffCategories=
+Categories
+
+LcOpDiffFragments=
+Fragments
+
+LcOpDiffTriangles=
+Triangles
+
+LcOpDiffFragmentTriangles=
+Fragment Triangles
+
+LcOpDiffReversed=
+Reversed
+
+LcOpDiffBox=
+Box
+
+LcOpDiffParent=
+Parent
+
+LcOpDiffIndexInParent=
+Index in Parent
+
+LcOpDiffFragmentOffset=
+Fragment Offset
+
+LcOpDiffFragmentChecksum=
+Fragment Checksum
+
+LcOpDiffFragmentTransformTranslate=
+Transform Translation
+
+LcOpDiffFragmentTransformRotation=
+Transform Rotation
+
+LcOpDiffFragmentTransformScaleOrientation=
+Transform Scale Orientation
+
+LcOpDiffFragmentTransformScale=
+Transform Scale
+
+LcOpDiffFragmentHasGeometry=
+Fragment Has Geometry
+
+LcOpDiffType0=
+Geometry
+
+LcOpDiffType1=
+Name
+
+LcOpDiffType2=
+Overridden Material
+
+LcOpDiffType3=
+Overridden Transform
+
+LcOpDiffType4=
+Properties
+
+LcOpDiffType5=
+Tree
+
+LcOpDiffType6=
+Type
+
+LcOpDiffType7=
+Unique IDs
+
+LcOpDiffType8=
+Logical
+
+LcOpDiffTypeSummary_%s_%d_%d=
+%s, %d occurrences (%d unique)
+
+LcOpDiffInfoSummary_%s_%s_%d=
+%s %s, %d occurrences
+
+LcOpDiffDetailSummary_%s_%d=
+*** %s (%d occurrences)

@@ -25,6 +25,7 @@ namespace PIXMYD_Nav
             SplitsAVertexWhenItsTextureCoordinatesDiffer(ref failures);
             FansAPolygonIntoTriangles(ref failures);
             RefusesWhatItCannotTurnIntoAMesh(ref failures);
+            FindsTheAtlasThroughTheMaterialLibrary(ref failures);
             return failures;
         }
 
@@ -151,6 +152,73 @@ namespace PIXMYD_Nav
                 "a face with two corners is refused", ref failures);
             Program.Check(!ObjReader.ReadFile("no-such-file-anywhere.obj").Ok,
                 "a missing file is refused rather than throwing", ref failures);
+        }
+        /// <summary>
+        /// The atlas is found through the MTL, not by assuming a filename.
+        ///
+        /// This is what carries the photographic texture into the NWC: the
+        /// material asset names an image file, and if nothing resolves that
+        /// name the model comes out flat grey with all the geometry intact --
+        /// which is exactly the failure that is hard to spot, because it looks
+        /// like a mesh rather than like a bug.
+        /// </summary>
+        private static void FindsTheAtlasThroughTheMaterialLibrary(ref int failures)
+        {
+            string folder = Path.Combine(
+                Path.GetTempPath(), "pixmyd-obj-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            try
+            {
+                string obj = Path.Combine(folder, "capture.obj");
+                string mtl = Path.Combine(folder, "capture.mtl");
+                string png = Path.Combine(folder, "capture.png");
+                File.WriteAllText(obj, string.Join(Environment.NewLine, new[] {
+                    "mtllib capture.mtl",
+                    "v 0 0 0", "v 1 0 0", "v 0 1 0",
+                    "vt 0 0", "vt 1 0", "vt 0 1",
+                    "usemtl capture-material",
+                    "f 1/1 2/2 3/3",
+                }));
+                File.WriteAllText(mtl, string.Join(Environment.NewLine, new[] {
+                    "newmtl capture-material", "Kd 1 1 1", "map_Kd capture.png",
+                }));
+                File.WriteAllBytes(png, new byte[] { 0x89, 0x50, 0x4E, 0x47 });
+
+                ObjReader.Result r = ObjReader.ReadFile(obj);
+                Program.Check(r.Ok, "the OBJ reads: " + r.Message, ref failures);
+                if (!r.Ok) return;
+
+                Program.Check(string.Equals(r.Mesh.TexturePath, png,
+                                            StringComparison.OrdinalIgnoreCase),
+                    "map_Kd resolves against the OBJ folder, got "
+                        + (r.Mesh.TexturePath ?? "null"), ref failures);
+                Program.Check(r.Mesh.HasTexture,
+                    "coordinates plus an atlas is a textured mesh", ref failures);
+
+                // map_Kd may carry options before the filename. Skipping them
+                // wrongly takes "-s" as the image and finds nothing.
+                File.WriteAllText(mtl, "newmtl m" + Environment.NewLine
+                                     + "map_Kd -s 1 1 1 -o 0 0 0 capture.png");
+                Program.Check(
+                    ObjReader.TextureBeside(obj, "capture.mtl").Length > 0,
+                    "the options before the filename are stepped over", ref failures);
+
+                // A named image that is not there is not a texture. Handing
+                // the path on anyway makes Navisworks fail to open a file we
+                // could have known was missing.
+                File.WriteAllText(mtl, "map_Kd somewhere-else.png");
+                Program.Check(ObjReader.TextureBeside(obj, "capture.mtl") == "",
+                    "an image that is not on disk is not reported", ref failures);
+
+                Program.Check(ObjReader.TextureBeside(obj, "no-such.mtl") == "",
+                    "a missing material library is not reported", ref failures);
+                Program.Check(ObjReader.TextureBeside(obj, "") == "",
+                    "an OBJ with no mtllib has no texture", ref failures);
+            }
+            finally
+            {
+                try { Directory.Delete(folder, true); } catch (Exception) { }
+            }
         }
     }
 }
