@@ -62,10 +62,15 @@ namespace PIXMYD_Nav.Core.Nwc
                     return "The nwcreate library that writes NWC files is not in this "
                          + "Navisworks installation.";
                 }
-                catch (EntryPointNotFoundException ex)
+                catch (EntryPointNotFoundException)
                 {
-                    return "The nwcreate library is present but does not have the entry point "
-                         + "this plugin expects: " + ex.Message;
+                    // No initialiser in this copy of the library, which is what
+                    // being inside Navisworks looks like: the host loaded and
+                    // started nwcreate before this plugin existed, so there is
+                    // nothing left to start and the entry point is not offered.
+                    // Every function the writer actually calls is exported.
+                    _initialised = true;
+                    return null;
                 }
 
                 if (status != NwcApi.ApiStatus.Ok)

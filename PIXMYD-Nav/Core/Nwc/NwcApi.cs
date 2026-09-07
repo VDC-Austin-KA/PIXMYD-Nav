@@ -97,11 +97,29 @@ namespace PIXMYD_Nav.Core.Nwc
 
         // MARK: - Lifetime
 
+        /// <summary>
+        /// Start the API. Present in the SDK's `nwcreate_21.dll`, and **not**
+        /// in the copy inside Navisworks.
+        ///
+        /// That absence is the answer, not a problem: this plugin runs inside
+        /// Navisworks, which loaded and initialised nwcreate long before any of
+        /// this got a chance to. There is nothing left to start, which is why
+        /// the entry point is not offered. Calling it is still the right first
+        /// move -- a future host that does export it wants calling -- so the
+        /// caller treats "no such entry point" as "already running".
+        /// </summary>
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         internal static extern ApiStatus LiNwcApiInitialise();
 
-        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
-        internal static extern void LiNwcApiTerminate();
+        /// <summary>
+        /// Whether a named licence is available. Exported by the copy inside
+        /// Navisworks, unlike the initialiser, and the honest way to answer
+        /// "will this be allowed to write" before writing anything.
+        /// </summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall,
+                   CharSet = CharSet.Ansi)]
+        internal static extern ApiStatus LiNwcApiIsLicenseAvailable(
+            [MarshalAs(UnmanagedType.LPStr)] string name);
 
         // MARK: - Scene
 
