@@ -90,14 +90,29 @@ namespace PIXMYD_Nav.Core.Nwc
                     return "The NWC writer is missing its nwcreate_data folder, which has to "
                          + "sit beside " + NwcApi.Dll + " in " + folder + ".";
 
-                if (LoadLibraryW(dll) == IntPtr.Zero)
+                IntPtr module = LoadLibraryW(dll);
+                if (module == IntPtr.Zero)
                     return "Windows would not load " + dll + " (error "
                          + Marshal.GetLastWin32Error() + ").";
 
                 NwcApi.ApiStatus status;
                 try
                 {
-                    status = NwcApi.LiNwcApiInitialise();
+                    // Order, and it is load-bearing. The header says
+                    // LiNwcApiInitialise brings up error handling itself;
+                    // calling it without this first is an access violation
+                    // rather than a status code, which is what took the host
+                    // application down when this ran in-process. Autodesk's own
+                    // C exporter opens its main() with exactly this line.
+                    //
+                    // The Ex forms take the module nwcreate should find
+                    // `nwcreate_data` beside. The plain forms work that out
+                    // from nwcreate's own location, which is one more thing to
+                    // be wrong about when the DLL was loaded by hand from a
+                    // path the loader never searched -- and we are holding the
+                    // handle already.
+                    NwcApi.LiNwcApiErrorInitialiseEx(module);
+                    status = NwcApi.LiNwcApiInitialiseEx(module);
                 }
                 catch (DllNotFoundException)
                 {

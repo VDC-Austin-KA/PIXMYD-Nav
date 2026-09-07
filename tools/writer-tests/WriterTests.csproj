@@ -51,5 +51,6 @@
     <Compile Include="../../PIXMYD-Nav/Core/Nwc/NwcApi.cs" />
     <Compile Include="../../PIXMYD-Nav/Core/Nwc/NwcMesh.cs" />
     <Compile Include="../../PIXMYD-Nav/Core/Nwc/ObjReader.cs" />
+    <Compile Include="../../PIXMYD-Nav/Core/Nwc/NwcConverter.cs" />
   </ItemGroup>
 </Project>

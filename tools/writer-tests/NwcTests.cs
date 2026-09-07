@@ -24,6 +24,7 @@ namespace PIXMYD_Nav
             PropertiesAreOnlyPromisedWhenTheyCanBeDelivered(ref failures);
             UvsAreCarriedPerCornerNotPerVertex(ref failures);
             ATextureNeedsBothHalves(ref failures);
+            PathsSurviveTheCommandLine(ref failures);
             return failures;
         }
 
@@ -181,6 +182,34 @@ namespace PIXMYD_Nav
             uvsOnly.TexturePath = "   ";
             Program.Check(!uvsOnly.HasTexture,
                 "whitespace is not a path", ref failures);
+        }
+        /// <summary>
+        /// The converter is handed paths on a command line, and the paths it
+        /// gets are a user profile folder and a site name -- both of which
+        /// carry spaces as a matter of course, and one of which ends in a
+        /// backslash often enough to matter.
+        ///
+        /// A backslash immediately before the closing quote escapes it, so
+        /// `"C:\folder\"` is not a quoted path; it is an unterminated
+        /// argument that swallows whatever came next.
+        /// </summary>
+        private static void PathsSurviveTheCommandLine(ref int failures)
+        {
+            Program.Check(NwcConverter.Quote("plain") == "\"plain\"",
+                "an ordinary path is quoted", ref failures);
+
+            Program.Check(
+                NwcConverter.Quote(@"C:\Users\A B\capture.obj") == "\"C:\\Users\\A B\\capture.obj\"",
+                "a path with a space is quoted, got " + NwcConverter.Quote(@"C:\Users\A B\capture.obj"),
+                ref failures);
+
+            string trailing = NwcConverter.Quote(@"C:\folder\");
+            Program.Check(trailing == "\"C:\\folder\\\\\"",
+                "a trailing backslash is doubled so it cannot escape the quote, got "
+                    + trailing, ref failures);
+
+            Program.Check(NwcConverter.Quote(null) == "\"\"",
+                "null is an empty argument rather than a crash", ref failures);
         }
     }
 }

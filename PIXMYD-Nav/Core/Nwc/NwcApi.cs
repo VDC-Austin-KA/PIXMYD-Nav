@@ -130,6 +130,37 @@ namespace PIXMYD_Nav.Core.Nwc
         internal static extern ApiStatus LiNwcApiInitialise();
 
         /// <summary>
+        /// Bring up the error and name handling before anything else.
+        ///
+        /// The header says LiNwcApiInitialise calls this itself. Autodesk's own
+        /// C exporter calls it first anyway, and it is the first line of its
+        /// main() -- so it goes first here too, because an access violation
+        /// inside LiNwcApiInitialise is what happens when it does not.
+        /// </summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        internal static extern void LiNwcApiErrorInitialise();
+
+        /// <summary>As above, told explicitly which module to find
+        /// `nwcreate_data` beside instead of working it out.</summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        internal static extern void LiNwcApiErrorInitialiseEx(IntPtr moduleInstance);
+
+        /// <summary>
+        /// Start the API, finding `nwcreate_data` relative to the given module
+        /// rather than to nwcreate itself.
+        ///
+        /// The plain form works out its own location, which is one more thing
+        /// to be wrong about when the DLL was loaded by hand from a path the
+        /// loader did not search. This form is handed the module returned by
+        /// LoadLibrary, so there is nothing left to work out.
+        /// </summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        internal static extern ApiStatus LiNwcApiInitialiseEx(IntPtr moduleInstance);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        internal static extern void LiNwcApiTerminate();
+
+        /// <summary>
         /// Whether a named licence is available. Exported by the copy inside
         /// Navisworks, unlike the initialiser, and the honest way to answer
         /// "will this be allowed to write" before writing anything.
