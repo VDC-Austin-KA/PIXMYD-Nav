@@ -8,6 +8,7 @@ using Autodesk.Navisworks.Api;
 using PIXMYD_Nav.Core.Capture;
 using PIXMYD_Nav.Core.Markers;
 using PIXMYD_Nav.Core.NavBridge;
+using PIXMYD_Nav.Core.Nwc;
 using PIXMYD_Nav.Core.Points;
 using PIXMYD_Nav.Core.Transfer;
 using PIXMYD_Nav.Core.Workspace;
@@ -605,12 +606,47 @@ namespace PIXMYD_Nav
                 return;
             }
 
-            if (!capture.GeometryIsAppendable)
+            // An OBJ is converted rather than appended. Navisworks does not
+            // read OBJ, and NWC is what it writes for its own cache -- so
+            // appending one is a load rather than a translation, through the
+            // one reader that is never the weak link. The phone sends OBJ
+            // because it is the format this plugin can read and it carries a
+            // texture coordinate per polygon corner, which is what a
+            // photographic atlas needs.
+            bool convertedToNwc = false;
+            if (string.Equals(Path.GetExtension(geometryPath), ".obj",
+                              StringComparison.OrdinalIgnoreCase))
+            {
+                ObjReader.Result read = ObjReader.ReadFile(geometryPath);
+                if (!read.Ok)
+                {
+                    MessageBox.Show(this, read.Message, "The scan could not be read",
+                                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                read.Mesh.Name = "Scan " + Short(capture.CaptureId);
+                string nwcPath = Path.ChangeExtension(geometryPath, ".nwc");
+                NwcWriter.Result made = NwcWriter.Write(read.Mesh, nwcPath);
+                if (!made.Ok)
+                {
+                    MessageBox.Show(this, made.Message, "The scan could not be converted",
+                                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+                OnTransferActivity("Converted " + capture.GeometryFile + " to NWC — "
+                                   + read.Message);
+                geometryPath = nwcPath;
+                convertedToNwc = true;
+            }
+            else if (!capture.GeometryIsAppendable)
             {
                 MessageBox.Show(this,
-                    "Navisworks does not read " + Path.GetExtension(capture.GeometryFile) + ", so this mesh " +
-                    "cannot be appended. Newer PIXMYD builds send FBX, which it does read.\n\n" +
-                    "The alignment is written to:\n\n" + manifest,
+                    "Navisworks does not read " + Path.GetExtension(capture.GeometryFile) +
+                    ", so this mesh cannot be appended. Newer PIXMYD builds send OBJ, which " +
+                    "this plugin converts to NWC." + Environment.NewLine + Environment.NewLine
+                    + "The alignment is written to:" + Environment.NewLine + Environment.NewLine
+                    + manifest,
                     "Cannot append this format", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
@@ -650,7 +686,16 @@ namespace PIXMYD_Nav
             try { upAxis = SceneReader.Capture(_document).UpAxis; } catch (Exception) { }
 
             double toDocument = _scaleToMeters == 0 ? 1.0 : 1.0 / _scaleToMeters;
-            double[] fromImportedFbx = TransformMath.Multiply(placement, TransformMath.FbxCaptureBasis(upAxis));
+            // An FBX declares Y as up, so Navisworks' reader turns it into
+            // the document's Z-up frame on the way in, and the solution -- which
+            // maps the capture's own ARKit frame -- has to be composed with the
+            // inverse of that turn. An NWC written here went in unturned,
+            // because nothing read it; the coordinates are the ones we wrote.
+            // Applying the FBX correction to it would lay the scan on its side.
+            double[] basis = convertedToNwc
+                ? TransformMath.Compose(new double[] { 0, 0, 1 }, 0, new double[] { 0, 0, 0 })
+                : TransformMath.FbxCaptureBasis(upAxis);
+            double[] fromImportedFbx = TransformMath.Multiply(placement, basis);
             double[] inDocumentUnits = TransformMath.WithTranslationScaled(fromImportedFbx, toDocument);
 
             string error;

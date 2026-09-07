@@ -112,6 +112,9 @@ namespace PIXMYD_Nav.Core.Capture
             {
                 if (!HasGeometry) return false;
                 string extension = System.IO.Path.GetExtension(GeometryFile);
+                // OBJ is not in this list on purpose: Navisworks does not read
+                // it, and the plugin converts it to NWC first. "Appendable"
+                // here means appendable as it stands.
                 return string.Equals(extension, ".fbx", StringComparison.OrdinalIgnoreCase)
                     || string.Equals(extension, ".dwg", StringComparison.OrdinalIgnoreCase)
                     || string.Equals(extension, ".dxf", StringComparison.OrdinalIgnoreCase)

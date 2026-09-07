@@ -16,6 +16,7 @@ namespace PIXMYD_Nav
             failures += AlignmentTests.Run();
             failures += WorkspaceTests.Run();
             failures += NwcTests.Run();
+            failures += ObjReaderTests.Run();
 
             Console.WriteLine(failures == 0 ? "ALL TESTS PASSED" : failures + " TEST(S) FAILED");
             return failures == 0 ? 0 : 1;
