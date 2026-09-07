@@ -461,11 +461,9 @@ namespace PIXMYD_Nav
                 Dictionary<string, double[]> positions = PointPositionsForCurrentSet(capture.PointSetId);
                 if (positions == null)
                 {
-                    MessageBox.Show(this,
-                        "This capture has no solution, and there are no points in the Points tab to " +
-                        "solve it against.\n\nOpen the point set it was taken against (" +
-                        Short(capture.PointSetId) + "), or place the same points again.",
-                        "Cannot place this capture", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    OfferHandPlacement(capture,
+                        "This capture has no solution, and there are no points in the Points tab "
+                        + "to solve it against.");
                     return;
                 }
 
@@ -478,8 +476,7 @@ namespace PIXMYD_Nav
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show(this, ex.Message, "Cannot solve this capture",
-                        MessageBoxButton.OK, MessageBoxImage.Warning);
+                    OfferHandPlacement(capture, ex.Message);
                     return;
                 }
             }
@@ -670,6 +667,61 @@ namespace PIXMYD_Nav
             StatusText.Text =
                 "Scan appended and placed — " + AccuracyBands.Classify(solution.RmsError).Label +
                 " fit at " + Millimetres(solution.RmsError) + ".";
+        }
+
+        /// <summary>
+        /// When there is nothing to solve against, offer to place it anyway.
+        ///
+        /// This used to be a dead end: a box saying why it could not be solved,
+        /// and no way forward. But a scan the operator cannot see is worth
+        /// nothing, and "I know where this goes, let me put it there" is the
+        /// ordinary case for a capture taken without control -- which is most
+        /// of them, since placing points is a deliberate extra step on site.
+        ///
+        /// So the refusal becomes a choice. The placement carries
+        /// <see cref="CaptureSolution.NotMeasured"/>, and everything that would
+        /// otherwise quote a grade says that instead: a hand placement reports
+        /// zero error, and zero is the number an excellent fit reports.
+        /// </summary>
+        private void OfferHandPlacement(CaptureFile capture, string why)
+        {
+            var message = new System.Text.StringBuilder();
+            message.AppendLine(why);
+            message.AppendLine();
+
+            // Where it lands. The centre of the selection when there is one,
+            // because pointing at somewhere in the model first is how an
+            // operator says "put it here".
+            var anchor = new Vec3();
+            bool haveSelection = false;
+            try { haveSelection = SceneReader.TrySelectionCenter(_document, out anchor); }
+            catch (Exception) { }
+
+            message.Append("It can still be placed by hand");
+            message.AppendLine(haveSelection
+                ? ", at the centre of what you have selected."
+                : ", at the model origin. (Select something first to drop it there instead.)");
+            message.AppendLine();
+            message.AppendLine(
+                "It arrives unrotated and NOT MEASURED -- there is no fit behind it and no error to "
+                + "quote. Work it into position with the nudge buttons or the Item Tools gizmo.");
+            message.AppendLine();
+            message.AppendLine("Place it by hand?");
+
+            MessageBoxResult answer = MessageBox.Show(
+                this, message.ToString(), "Place by hand - NOT MEASURED",
+                MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
+            if (answer != MessageBoxResult.Yes) return;
+
+            // The selection centre is in document units; the placement chain
+            // works in metres and scales again on the way out.
+            double[] metres = haveSelection
+                ? new double[] { anchor.X * _scaleToMeters, anchor.Y * _scaleToMeters, anchor.Z * _scaleToMeters }
+                : new double[] { 0, 0, 0 };
+
+            CaptureSolution byHand = CapturePlacement.ByHand(metres);
+            PlaceCapture(capture, byHand,
+                CapturePlacement.ModelWorldMatrix(byHand.Matrix, capture.AppliedOffset));
         }
 
         /// <summary>

@@ -39,6 +39,15 @@ namespace PIXMYD_Nav.Core.Capture
         public string[] OutlierPointIds;
         /// <summary>True when this app solved it rather than reading it.</summary>
         public bool SolvedLocally;
+        /// <summary>
+        /// True when the operator placed this by hand rather than solving it.
+        ///
+        /// A hand placement has no residuals, so <see cref="RmsError"/> is zero
+        /// -- and zero is the number an excellent fit reports. Anything that
+        /// grades or quotes the error has to ask this first, or the least
+        /// trustworthy placement in the suite is the one that reads best.
+        /// </summary>
+        public bool NotMeasured;
         /// <summary>True when the solve held the vertical from gravity rather
         /// than fitting all six degrees of freedom.</summary>
         public bool VerticalHeld;
@@ -440,6 +449,40 @@ namespace PIXMYD_Nav.Core.Capture
         /// The full transform to hand a placement API: the capture-to-model
         /// matrix with the origin offset folded into its translation column.
         /// </summary>
+        /// <summary>
+        /// A placement with no solve behind it: no turn, sitting at an anchor.
+        ///
+        /// For the case the suite had no answer to at all -- a capture whose
+        /// points do not match the model's, or that was taken with no points.
+        /// Refusing to place it leaves the operator with a scan they cannot
+        /// see; putting it where they are looking, unrotated, and saying it is
+        /// not measured leaves them with something they can nudge into place
+        /// and a number that does not pretend otherwise.
+        /// </summary>
+        /// <param name="anchorMetres">Where to put it, model world, metres.</param>
+        public static CaptureSolution ByHand(double[] anchorMetres)
+        {
+            double[] a = anchorMetres != null && anchorMetres.Length == 3
+                ? anchorMetres
+                : new double[] { 0, 0, 0 };
+            return new CaptureSolution
+            {
+                Matrix = new double[]
+                {
+                    1, 0, 0, 0,
+                    0, 1, 0, 0,
+                    0, 0, 1, 0,
+                    a[0], a[1], a[2], 1
+                },
+                Scale = 1,
+                RmsError = 0,
+                MaxError = 0,
+                OutlierPointIds = new string[0],
+                SolvedLocally = false,
+                NotMeasured = true
+            };
+        }
+
         public static double[] ModelWorldMatrix(double[] matrix, double[] appliedOffset)
         {
             if (matrix == null || matrix.Length != 16) return null;
