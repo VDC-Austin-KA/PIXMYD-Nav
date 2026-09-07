@@ -76,10 +76,35 @@ namespace PIXMYD_Nav.Core.NavBridge
             {
                 if (!document.TryAppendFile(path))
                 {
-                    result.Message =
-                        "Navisworks would not append " + Path.GetFileName(path) + ". The reader for " +
-                        "that format may not be installed in this edition.";
-                    return result;
+                    // TryAppendFile answers with a bare false and no reason, so
+                    // this used to guess -- and guessed wrong: it blamed a
+                    // missing format reader on a machine where lcldfbx.dll and
+                    // libfbxsdk-adsk.dll were both installed. The throwing
+                    // overload says what actually went wrong, and since the Try
+                    // form returned false nothing was appended, so asking again
+                    // costs a failed read rather than a duplicate model.
+                    string reason = null;
+                    try
+                    {
+                        document.AppendFile(path);
+                        // It worked the second time. That is worth knowing --
+                        // it means the first call failed for a transient
+                        // reason, a file still being written being the obvious
+                        // one -- but there is nothing to report as an error.
+                        reason = null;
+                    }
+                    catch (Exception inner)
+                    {
+                        reason = inner.Message;
+                    }
+
+                    if (reason != null)
+                    {
+                        result.Message =
+                            "Navisworks would not append " + Path.GetFileName(path) + ":"
+                            + Environment.NewLine + Environment.NewLine + reason;
+                        return result;
+                    }
                 }
             }
             catch (Exception ex)
