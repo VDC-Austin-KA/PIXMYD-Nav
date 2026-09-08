@@ -745,8 +745,9 @@ namespace PIXMYD_Nav
                 : ", at the model origin. (Select something first to drop it there instead.)");
             message.AppendLine();
             message.AppendLine(
-                "It arrives unrotated and NOT MEASURED -- there is no fit behind it and no error to "
-                + "quote. Work it into position with the nudge buttons or the Item Tools gizmo.");
+                "It arrives upright but NOT MEASURED -- there is no fit behind it and no error to "
+                + "quote, and nothing has decided which way it faces. Turn it about the vertical "
+                + "and work it into position with the nudge buttons or the Item Tools gizmo.");
             message.AppendLine();
             message.AppendLine("Place it by hand?");
 
@@ -761,7 +762,10 @@ namespace PIXMYD_Nav
                 ? new double[] { anchor.X * _scaleToMeters, anchor.Y * _scaleToMeters, anchor.Z * _scaleToMeters }
                 : new double[] { 0, 0, 0 };
 
-            CaptureSolution byHand = CapturePlacement.ByHand(metres);
+            string handUpAxis = "Z";
+            try { handUpAxis = SceneReader.Capture(_document).UpAxis; } catch (Exception) { }
+
+            CaptureSolution byHand = CapturePlacement.ByHand(metres, handUpAxis);
             PlaceCapture(capture, byHand,
                 CapturePlacement.ModelWorldMatrix(byHand.Matrix, capture.AppliedOffset));
         }

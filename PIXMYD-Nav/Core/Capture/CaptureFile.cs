@@ -463,20 +463,41 @@ namespace PIXMYD_Nav.Core.Capture
         /// and a number that does not pretend otherwise.
         /// </summary>
         /// <param name="anchorMetres">Where to put it, model world, metres.</param>
-        public static CaptureSolution ByHand(double[] anchorMetres)
+        /// <summary>
+        /// A placement with no fit behind it, at <paramref name="anchorMetres"/>.
+        ///
+        /// Not unrotated, which is what this used to be and what put every
+        /// hand-placed scan on its side. A solution matrix maps the capture's
+        /// own frame to model world, and the capture's frame is ARKit's Y-up
+        /// one -- so the identity is not "no rotation", it is the claim that a
+        /// Y-up capture is already Z-up, which is false in exactly the way you
+        /// notice from across the room.
+        ///
+        /// There is no fit here, so there is no heading to know: the operator
+        /// yaws it into place. What there is, always, is which way is up, and
+        /// that costs nothing to get right.
+        ///
+        /// <paramref name="documentUpAxis"/> is "Z" for an ordinary Navisworks
+        /// document. A Y-up document already agrees with the capture, so the
+        /// turn is the identity there and the old behaviour is what it gets.
+        /// </summary>
+        public static CaptureSolution ByHand(double[] anchorMetres, string documentUpAxis)
         {
             double[] a = anchorMetres != null && anchorMetres.Length == 3
                 ? anchorMetres
                 : new double[] { 0, 0, 0 };
+
+            // The same quarter turn about +X the converter bakes into the mesh
+            // and TransformMath.FbxCaptureBasis takes back out, composed here
+            // rather than written as literals so the three cannot drift apart.
+            bool documentIsYUp = string.Equals(
+                (documentUpAxis ?? "Z").Trim(), "Y", StringComparison.OrdinalIgnoreCase);
+            double[] turn = TransformMath.Compose(
+                new double[] { 1, 0, 0 }, documentIsYUp ? 0 : Math.PI * 0.5, a);
+
             return new CaptureSolution
             {
-                Matrix = new double[]
-                {
-                    1, 0, 0, 0,
-                    0, 1, 0, 0,
-                    0, 0, 1, 0,
-                    a[0], a[1], a[2], 1
-                },
+                Matrix = turn,
                 Scale = 1,
                 RmsError = 0,
                 MaxError = 0,

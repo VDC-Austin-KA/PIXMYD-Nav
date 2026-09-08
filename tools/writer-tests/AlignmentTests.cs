@@ -28,6 +28,7 @@ namespace PIXMYD_Nav
 
             TransformRoundTrip(ref failures);
             FbxImportBasisUndoesTheReadersTurn(ref failures);
+            AHandPlacedCaptureStandsUp(ref failures);
             NudgeMovesAlongTheDocumentAxes(ref failures);
             TurnHoldsThePivotStill(ref failures);
             GravitySolveRecoversAKnownTransform(ref failures);
@@ -178,6 +179,66 @@ namespace PIXMYD_Nav
         /// that turn and nothing else -- a sign error here lays every incoming
         /// scan on its side.
         /// </summary>
+        /// <summary>
+        /// A hand-placed capture arrives upright, and the whole chain says so.
+        ///
+        /// This is the end of the chain, not a piece of it, because every piece
+        /// was individually right while the result was wrong: the converter
+        /// turns the mesh into the document's frame, the placement composes the
+        /// solution with the inverse of that turn, and the two cancelled
+        /// exactly when the solution was the identity. A scan with no
+        /// correspondences is hand-placed, which is most of them, so that was
+        /// the ordinary case rather than an edge.
+        ///
+        /// What is checked here is what the operator sees: take the capture's
+        /// own up vector, put it through the mesh turn and then through the
+        /// transform the plugin hands Navisworks, and it has to come out
+        /// pointing at the document's ceiling.
+        /// </summary>
+        private static void AHandPlacedCaptureStandsUp(ref int failures)
+        {
+            // What the converter does to the mesh: ARKit up becomes document up.
+            double[] captureUp = { 0, 1, 0 };
+            double[] turned = { captureUp[0], -captureUp[2], captureUp[1] };
+
+            CaptureSolution byHand = CapturePlacement.ByHand(new double[] { 0, 0, 0 }, "Z");
+            double[] placement = CapturePlacement.ModelWorldMatrix(byHand.Matrix, null);
+            double[] applied = TransformMath.Multiply(placement, TransformMath.FbxCaptureBasis("Z"));
+
+            double[] up = Rotate(applied, turned);
+            Program.Check(Math.Abs(up[0]) < 1e-9 && Math.Abs(up[1]) < 1e-9 && Math.Abs(up[2] - 1) < 1e-9,
+                "a hand-placed capture points up, got ("
+                    + up[0].ToString("0.###") + ", " + up[1].ToString("0.###") + ", "
+                    + up[2].ToString("0.###") + ")", ref failures);
+
+            // And the operator still owns the heading: nothing here decides
+            // which way it faces, so the capture's forward axis must stay
+            // horizontal rather than being pinned to some arbitrary bearing.
+            // Through the mesh turn first, like the up vector: ARKit's forward
+            // is -Z, which the converter lands on +Y.
+            double[] forward = Rotate(applied, new double[] { 0, 1, 0 });
+            Program.Check(Math.Abs(forward[2]) < 1e-9,
+                "the capture's forward axis stays horizontal", ref failures);
+
+            // A Y-up document already agrees with the capture, so it turns
+            // nothing and the mesh is not turned either.
+            CaptureSolution flat = CapturePlacement.ByHand(new double[] { 0, 0, 0 }, "Y");
+            double[] same = Rotate(flat.Matrix, captureUp);
+            Program.Check(Math.Abs(same[1] - 1) < 1e-9,
+                "a Y-up document leaves the capture alone", ref failures);
+        }
+
+        /// <summary>The rotation part of a column-major 4x4, applied.</summary>
+        private static double[] Rotate(double[] m, double[] v)
+        {
+            return new double[]
+            {
+                m[0] * v[0] + m[4] * v[1] + m[8] * v[2],
+                m[1] * v[0] + m[5] * v[1] + m[9] * v[2],
+                m[2] * v[0] + m[6] * v[1] + m[10] * v[2],
+            };
+        }
+
         private static void FbxImportBasisUndoesTheReadersTurn(ref int failures)
         {
             double[] basis = TransformMath.FbxCaptureBasis("Z");
