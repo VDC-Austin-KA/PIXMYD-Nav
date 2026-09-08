@@ -51,11 +51,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="../../installer/V25/nwcreate_21.dll">
+    <Content Include="../../installer/Converter/nwcreate_21.dll">
       <Link>nwcreate_21.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="../../installer/V25/nwcreate_data/**/*">
+    <Content Include="../../installer/Converter/nwcreate_data/**/*">
       <Link>nwcreate_data\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

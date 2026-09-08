@@ -12,11 +12,16 @@ INSTALL
 2. Right-click Install.cmd  ->  "Run as administrator"  ->  accept the prompt.
 3. Start Navisworks. PIXMYD-Nav appears on the Add-Ins ribbon tab.
 
-The installer copies two files per Navisworks version into
+The installer copies the plugin, and the OBJ-to-NWC converter it runs, into
 
     C:\Program Files\Autodesk\Navisworks Manage <year>\Plugins\PIXMYD-Nav\
 
 That is all it does — mkdir and copy, nothing else.
+
+The converter is obj2nwc.exe, with nwcreate_21.dll and the nwcreate_data
+folder beside it. It is a separate program because nwcreate cannot be loaded
+into Navisworks itself, so exporting a scan as NWC runs it and reads back what
+it says. Without it the plugin still runs; scan export is what stops working.
 
 
 MANUAL INSTALL
@@ -32,6 +37,12 @@ For each Navisworks Manage year you have:
        V25  ->  Navisworks Manage 2025
        V26  ->  Navisworks Manage 2026
        V27  ->  Navisworks Manage 2027
+
+3. Copy everything in Converter\ into the same folder — obj2nwc.exe,
+   obj2nwc.exe.config, nwcreate_21.dll and the nwcreate_data folder. One build
+   serves every year, and all four have to sit together: the plugin looks for
+   the converter beside itself, and nwcreate looks for nwcreate_data beside
+   its own DLL.
 
 
 UNINSTALL
