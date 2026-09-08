@@ -1,0 +1,63 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    The OBJ-to-NWC converter, as a separate process.
+
+    It is separate because nwcreate cannot be run inside Navisworks. Both of
+    its builds refuse, for different reasons:
+
+      * `lcodpnwcreate.dll`, the copy in the Navisworks folder, is the loader
+        build. LiNwcApi.h: "These functions must be called when writing an
+        exporter from third party software. They should not be called when
+        writing a file loader." A loader is handed its scene by the host, so
+        that build exports no initialiser and its LiNwcSceneCreate refuses
+        with "Loader can't create scene".
+
+      * `nwcreate_21.dll`, the exporter build from the SDK, does export the
+        initialiser, but loading it into a running Navisworks means a second
+        copy of a NavisWorks module, with its own globals and its own licence
+        session, inside a process that already has one. That took the whole
+        application down.
+
+    A separate process has neither problem, and it is how every third-party
+    exporter Autodesk ships works: nwcreate runs in the exporting application,
+    not in Navisworks. It also means the conversion can be run and diagnosed
+    from a command line without launching Navisworks at all:
+
+        obj2nwc.exe capture.obj capture.nwc "Scan 1a2b3c"
+
+    net48 so it needs no runtime installed: it ships beside the plugin, in the
+    same folder as nwcreate_21.dll and nwcreate_data, which is where NwcWriter
+    looks for them.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>7.3</LangVersion>
+    <RootNamespace>PIXMYD_Nav</RootNamespace>
+    <AssemblyName>obj2nwc</AssemblyName>
+    <PlatformTarget>x64</PlatformTarget>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Nullable>disable</Nullable>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="../../PIXMYD-Nav/Core/Points/PointSet.cs" />
+    <Compile Include="../../PIXMYD-Nav/Core/Nwc/NwcApi.cs" />
+    <Compile Include="../../PIXMYD-Nav/Core/Nwc/NwcMesh.cs" />
+    <Compile Include="../../PIXMYD-Nav/Core/Nwc/NwcWriter.cs" />
+    <Compile Include="../../PIXMYD-Nav/Core/Nwc/ObjReader.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="../../installer/V25/nwcreate_21.dll">
+      <Link>nwcreate_21.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="../../installer/V25/nwcreate_data/**/*">
+      <Link>nwcreate_data\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+</Project>

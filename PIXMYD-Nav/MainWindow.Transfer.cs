@@ -617,17 +617,14 @@ namespace PIXMYD_Nav
             if (string.Equals(Path.GetExtension(geometryPath), ".obj",
                               StringComparison.OrdinalIgnoreCase))
             {
-                ObjReader.Result read = ObjReader.ReadFile(geometryPath);
-                if (!read.Ok)
-                {
-                    MessageBox.Show(this, read.Message, "The scan could not be read",
-                                    MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
-
-                read.Mesh.Name = "Scan " + Short(capture.CaptureId);
+                // Out of process, and that is not an implementation detail.
+                // nwcreate cannot run inside Navisworks: the loader build in
+                // the Navisworks folder refuses to create a scene, and the
+                // exporter build loaded in-process takes the application down
+                // with it. See NwcConverter for the whole story.
                 string nwcPath = Path.ChangeExtension(geometryPath, ".nwc");
-                NwcWriter.Result made = NwcWriter.Write(read.Mesh, nwcPath);
+                NwcConverter.Result made = NwcConverter.Convert(
+                    geometryPath, nwcPath, "Scan " + Short(capture.CaptureId));
                 if (!made.Ok)
                 {
                     MessageBox.Show(this, made.Message, "The scan could not be converted",
@@ -635,7 +632,7 @@ namespace PIXMYD_Nav
                     return;
                 }
                 OnTransferActivity("Converted " + capture.GeometryFile + " to NWC — "
-                                   + read.Message);
+                                   + made.Message);
                 geometryPath = nwcPath;
                 convertedToNwc = true;
             }

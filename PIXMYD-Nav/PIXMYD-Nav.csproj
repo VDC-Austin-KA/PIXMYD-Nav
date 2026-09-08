@@ -144,6 +144,8 @@
     <Compile Include="Core\NavBridge\PrimitiveHarvester.cs" />
     <Compile Include="Core\NavBridge\PointPicker.cs" />
     <Compile Include="Core\NavBridge\ModelPlacer.cs" />
+    <Compile Include="Core\NavBridge\FolderPrompt.cs" />
+    <Compile Include="Core\Nwc\NwcConverter.cs" />
     <Compile Include="MainWindow.xaml.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>

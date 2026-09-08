@@ -51,15 +51,84 @@ namespace PIXMYD_Nav.Core.Nwc
         {
             if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
                 return new Result { Message = "There is no OBJ at " + (path ?? "(no path)") + "." };
+            Result result;
             try
             {
                 using (var reader = new StreamReader(path))
-                    return Read(reader, Path.GetFileNameWithoutExtension(path));
+                    result = Read(reader, Path.GetFileNameWithoutExtension(path));
             }
             catch (Exception ex)
             {
                 return new Result { Message = "Could not read " + path + ": " + ex.Message };
             }
+
+            // The atlas is found the way the format says to find it, through
+            // the material library, rather than by guessing at a filename
+            // beside the OBJ. Ours writes `<stem>.png`; somebody else's will
+            // not, and the MTL is the only thing that actually knows.
+            if (result.Ok)
+                result.Mesh.TexturePath = TextureBeside(path, result.MaterialLibrary);
+            return result;
+        }
+
+        /// <summary>
+        /// The diffuse map named by <paramref name="materialLibrary"/>, as a
+        /// full path, or "" when there is not one that exists.
+        ///
+        /// Only `map_Kd` is read. The others -- ambient, specular, bump -- have
+        /// nowhere to go: the mesh carries one set of coordinates and the
+        /// material gets one connected texture.
+        /// </summary>
+        internal static string TextureBeside(string objPath, string materialLibrary)
+        {
+            if (string.IsNullOrWhiteSpace(materialLibrary)) return "";
+            string folder = Path.GetDirectoryName(Path.GetFullPath(objPath));
+            if (string.IsNullOrEmpty(folder)) return "";
+
+            string mtl = Path.Combine(folder, materialLibrary);
+            if (!File.Exists(mtl)) return "";
+
+            try
+            {
+                foreach (string line in File.ReadAllLines(mtl))
+                {
+                    string[] parts = line.Split(
+                        new[] { ' ', '	' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length < 2) continue;
+                    if (!string.Equals(parts[0], "map_Kd", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    // map_Kd takes options before the filename (-s, -o, -bm and
+                    // friends, each with values). The filename is what is left
+                    // once those are stepped over, and it may hold spaces, so
+                    // the tail is rejoined rather than taken as one token.
+                    int i = 1;
+                    while (i < parts.Length && parts[i].StartsWith("-"))
+                    {
+                        i++;
+                        while (i < parts.Length && !parts[i].StartsWith("-")
+                               && IsNumber(parts[i])) i++;
+                    }
+                    if (i >= parts.Length) continue;
+
+                    string name = string.Join(" ", parts, i, parts.Length - i);
+                    string full = Path.IsPathRooted(name) ? name : Path.Combine(folder, name);
+                    if (File.Exists(full)) return Path.GetFullPath(full);
+                }
+            }
+            catch (Exception)
+            {
+                // A material library we cannot read is a mesh without a
+                // texture, not a mesh we refuse. The geometry is the point.
+            }
+            return "";
+        }
+
+        private static bool IsNumber(string text)
+        {
+            double ignored;
+            return double.TryParse(
+                text, NumberStyles.Float, CultureInfo.InvariantCulture, out ignored);
         }
 
         public static Result Read(TextReader reader, string name)

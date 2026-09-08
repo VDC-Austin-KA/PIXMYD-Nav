@@ -38,10 +38,33 @@ namespace PIXMYD_Nav.Core.Nwc
 
         public string Name = "PIXMYD scan";
 
+        /// <summary>
+        /// The image the UVs address, as a full path, or empty.
+        ///
+        /// A path rather than pixels because that is what nwcreate takes: a
+        /// UnifiedBitmap asset names a file. It has to still be there when
+        /// Navisworks reads the NWC, which is why the caller copies the atlas
+        /// next to the model rather than leaving it in a scratch folder.
+        /// </summary>
+        public string TexturePath = "";
+
         public int TriangleCount { get { return Triangles.Count / 3; } }
         public bool HasNormals { get { return Normals.Count == Vertices.Count && Vertices.Count > 0; } }
         public bool HasColors { get { return Colors.Count == Vertices.Count && Vertices.Count > 0; } }
         public bool HasUvs { get { return Uvs.Count == Triangles.Count * 2 && Triangles.Count > 0; } }
+
+        /// <summary>
+        /// Whether this mesh can be written textured.
+        ///
+        /// Both halves are required and neither implies the other: an atlas
+        /// with no coordinates paints nothing, and coordinates with no atlas
+        /// name a file Navisworks will fail to open. Where that leaves the
+        /// mesh is vertex colour, which is still a coloured model.
+        /// </summary>
+        public bool HasTexture
+        {
+            get { return HasUvs && !string.IsNullOrWhiteSpace(TexturePath); }
+        }
 
         /// <summary>
         /// The vertex properties this mesh can actually supply.

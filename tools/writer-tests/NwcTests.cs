@@ -23,6 +23,8 @@ namespace PIXMYD_Nav
             CornersRepeatSharedVerticesForAnUnindexedStream(ref failures);
             PropertiesAreOnlyPromisedWhenTheyCanBeDelivered(ref failures);
             UvsAreCarriedPerCornerNotPerVertex(ref failures);
+            ATextureNeedsBothHalves(ref failures);
+            PathsSurviveTheCommandLine(ref failures);
             return failures;
         }
 
@@ -150,6 +152,64 @@ namespace PIXMYD_Nav
             // which is exactly what per-vertex storage could not hold.
             Program.Check(Math.Abs(corners[1].U - corners[3].U) > 1e-9,
                 "the same vertex carries different UVs in different triangles", ref failures);
+        }
+        /// <summary>
+        /// A texture is coordinates *and* an image, and half of one is worse
+        /// than neither: an atlas with no coordinates paints nothing, and
+        /// coordinates naming an image that is not there make Navisworks fail
+        /// to open a file. Either way the answer is to fall back to vertex
+        /// colour, which is still a coloured model.
+        /// </summary>
+        private static void ATextureNeedsBothHalves(ref int failures)
+        {
+            NwcMesh bare = Quad();
+            Program.Check(!bare.HasTexture, "a bare mesh is not textured", ref failures);
+
+            NwcMesh imageOnly = Quad();
+            imageOnly.TexturePath = @"C:\somewhere\atlas.png";
+            Program.Check(!imageOnly.HasTexture,
+                "an atlas with nowhere to put it is not a texture", ref failures);
+
+            NwcMesh uvsOnly = Quad();
+            uvsOnly.Uvs = new List<double>();
+            for (int i = 0; i < 12; i++) uvsOnly.Uvs.Add(0.5);
+            Program.Check(uvsOnly.HasUvs && !uvsOnly.HasTexture,
+                "coordinates with no atlas are not a texture", ref failures);
+
+            uvsOnly.TexturePath = @"C:\somewhere\atlas.png";
+            Program.Check(uvsOnly.HasTexture, "both halves make a texture", ref failures);
+
+            uvsOnly.TexturePath = "   ";
+            Program.Check(!uvsOnly.HasTexture,
+                "whitespace is not a path", ref failures);
+        }
+        /// <summary>
+        /// The converter is handed paths on a command line, and the paths it
+        /// gets are a user profile folder and a site name -- both of which
+        /// carry spaces as a matter of course, and one of which ends in a
+        /// backslash often enough to matter.
+        ///
+        /// A backslash immediately before the closing quote escapes it, so
+        /// `"C:\folder\"` is not a quoted path; it is an unterminated
+        /// argument that swallows whatever came next.
+        /// </summary>
+        private static void PathsSurviveTheCommandLine(ref int failures)
+        {
+            Program.Check(NwcConverter.Quote("plain") == "\"plain\"",
+                "an ordinary path is quoted", ref failures);
+
+            Program.Check(
+                NwcConverter.Quote(@"C:\Users\A B\capture.obj") == "\"C:\\Users\\A B\\capture.obj\"",
+                "a path with a space is quoted, got " + NwcConverter.Quote(@"C:\Users\A B\capture.obj"),
+                ref failures);
+
+            string trailing = NwcConverter.Quote(@"C:\folder\");
+            Program.Check(trailing == "\"C:\\folder\\\\\"",
+                "a trailing backslash is doubled so it cannot escape the quote, got "
+                    + trailing, ref failures);
+
+            Program.Check(NwcConverter.Quote(null) == "\"\"",
+                "null is an empty argument rather than a crash", ref failures);
         }
     }
 }
