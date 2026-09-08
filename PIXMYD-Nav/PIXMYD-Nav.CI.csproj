@@ -11,11 +11,16 @@
     dotnet build PIXMYD-Nav/PIXMYD-Nav.CI.csproj -c Release -p:Platform=x64 \
       -p:NWYear=2027 -p:NWPackageVersion=2027.0.0
 
-  Supported NWYear / NWPackageVersion pairs:
-    2024 -> 2024.0.0
-    2025 -> 2025.0.0
-    2026 -> 2026.0.1
-    2027 -> 2027.0.0
+  Both are required. There is no default year. The pairs, and the
+  Autodesk.Navisworks.Api version each one binds against:
+
+    2024 -> 2024.0.0 -> 21.0.0.0
+    2025 -> 2025.0.0 -> 22.0.0.0
+    2026 -> 2026.0.1 -> 23.0.0.0
+    2027 -> 2027.0.0 -> 24.0.0.0
+
+  Navisworks will not load a plugin built against a different one, and it
+  does not say so: the plugin just never reaches the Add-Ins ribbon.
 -->
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
@@ -33,10 +38,31 @@
     <Deterministic>true</Deterministic>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
 
-    <NWYear Condition="'$(NWYear)' == ''">2027</NWYear>
-    <NWPackageVersion Condition="'$(NWPackageVersion)' == ''">2027.0.0</NWPackageVersion>
     <DefineConstants>$(DefineConstants);NW$(NWYear)</DefineConstants>
   </PropertyGroup>
+
+  <!--
+    No default year, on purpose.
+
+    There used to be one, 2027, and it is how a 2027 build ended up installed
+    as V24, V26 and the copy in a running Navisworks 2025. Nothing about that
+    DLL looks wrong: it builds clean, it is named right, it sits in the right
+    folder. Navisworks just declines to bind a plugin compiled against
+    Autodesk.Navisworks.Api 24.0.0.0 when it ships 22.0.0.0, and says nothing
+    about it. The plugin is simply absent from the Add-Ins ribbon.
+
+    So a build with no year named is an error rather than a guess. The years
+    map to the API version Navisworks loads:
+
+      2024 -> 2024.0.0 -> Autodesk.Navisworks.Api 21.0.0.0
+      2025 -> 2025.0.0 -> 22.0.0.0
+      2026 -> 2026.0.1 -> 23.0.0.0
+      2027 -> 2027.0.0 -> 24.0.0.0
+  -->
+  <Target Name="RequireNWYear" BeforeTargets="CollectPackageReferences;BeforeBuild">
+    <Error Condition="'$(NWYear)' == '' OR '$(NWPackageVersion)' == ''"
+           Text="Name the Navisworks year: -p:NWYear=2025 -p:NWPackageVersion=2025.0.0 (2024/2024.0.0, 2025/2025.0.0, 2026/2026.0.1, 2027/2027.0.0). A DLL built for the wrong year loads silently nowhere." />
+  </Target>
 
   <ItemGroup>
     <Compile Remove="bin/**;obj/**" />
