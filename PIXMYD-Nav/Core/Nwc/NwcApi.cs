@@ -83,11 +83,18 @@ namespace PIXMYD_Nav.Core.Nwc
             InternalError = 2,
         }
 
-        // LiNwcScene.h: LtNwcWriteStatus. Only the values this code reacts to
-        // are named; the rest are reported by number.
+        // LiNwcScene.h: LtNwcWriteStatus, in declaration order. All of them
+        // named, because a number here is what a person ends up reading: the
+        // dialog used to say "status 4" and 4 is InternalError.
         public enum WriteStatus
         {
             Ok = 0,
+            CantOpen = 1,
+            NoRoom = 2,
+            Canceled = 3,
+            InternalError = 4,
+            NotLicensed = 5,
+            OutOfMemory = 6,
         }
 
         // LiNwcScene.h: LtNwcLinearUnits, in declaration order.
@@ -185,17 +192,53 @@ namespace PIXMYD_Nav.Core.Nwc
         internal static extern void LiNwcSceneAddNode(IntPtr scene, IntPtr node);
 
         /// <summary>
-        /// Write the scene. `filename` is `LtWideString`, so UTF-16 -- which is
-        /// also why every path this is handed can carry the site names people
-        /// actually use.
+        /// Write the scene as an NWC.
+        ///
+        /// Not LiNwcSceneWrite, which writes an NWD. The header on that one:
+        /// "From NavisWorks 3 onwards will fail with a
+        /// LI_NWC_WRITE_INTERNAL_ERROR if a publisher license is not
+        /// available." That is status 4, and it arrives with nothing to say it
+        /// was ever about licensing -- a publisher licence is a separate
+        /// Autodesk product, and we do not have one.
+        ///
+        /// An NWC needs no publisher, because it is a cache rather than a
+        /// published model, and it is what this plugin wanted from the start:
+        /// appending one is a load, not a translation.
+        ///
+        /// `origFilename` is the file the cache was generated for, and the
+        /// header allows NULL for "unknown or not applicable". Null is what we
+        /// pass: the OBJ is a working file beside the capture, and a cache
+        /// that points at a path which may not outlive the week is worse than
+        /// one that points nowhere.
+        ///
+        /// The Ex form, so a scan too big for memory says so instead of
+        /// arriving as another internal error.
+        ///
+        /// `filename` is `LtWideString`, so UTF-16 -- which is also why every
+        /// path this is handed can carry the site names people actually use.
         /// </summary>
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall,
                    CharSet = CharSet.Unicode)]
-        internal static extern WriteStatus LiNwcSceneWrite(
+        internal static extern WriteStatus LiNwcSceneWriteCacheEx(
             IntPtr scene,
+            [MarshalAs(UnmanagedType.LPWStr)] string origFilename,
             [MarshalAs(UnmanagedType.LPWStr)] string filename,
             IntPtr progressCallback,
             IntPtr userData);
+
+        /// <summary>
+        /// nwcreate's own sentence for a write status.
+        ///
+        /// Returned as an IntPtr rather than a marshalled string deliberately.
+        /// The header: "it uses a shared buffer for formatting the string, so
+        /// the return value is only valid until the next time this function is
+        /// called." That buffer is nwcreate's. Declaring the return as a
+        /// string would have the marshaller free it as if it were ours.
+        /// </summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall,
+                   CharSet = CharSet.Unicode)]
+        internal static extern IntPtr LiNwcSceneGetWriteStatusErrorMessage(
+            WriteStatus status, [MarshalAs(UnmanagedType.LPWStr)] string filename);
 
         // MARK: - Geometry
 

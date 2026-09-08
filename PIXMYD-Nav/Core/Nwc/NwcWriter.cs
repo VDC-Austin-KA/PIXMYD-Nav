@@ -213,6 +213,30 @@ namespace PIXMYD_Nav.Core.Nwc
             try { destroy(handle); } catch (Exception) { }
         }
 
+        /// <summary>
+        /// Why a write failed, in nwcreate's words where it has any.
+        ///
+        /// This used to say "status 4", which sends the reader to a header
+        /// they do not have a copy of. The library formats its own message;
+        /// all this has to do is survive it coming back empty, and name the
+        /// status rather than number it when that happens.
+        /// </summary>
+        private static string WriteFailure(NwcApi.WriteStatus status, string path)
+        {
+            try
+            {
+                IntPtr text = NwcApi.LiNwcSceneGetWriteStatusErrorMessage(status, path);
+                if (text != IntPtr.Zero)
+                {
+                    string said = Marshal.PtrToStringUni(text);
+                    if (!string.IsNullOrWhiteSpace(said)) return said.Trim();
+                }
+            }
+            catch (Exception) { }
+
+            return "The NWC writer refused to write the file (" + status + ").";
+        }
+
         /// <summary>Write <paramref name="mesh"/> to <paramref name="path"/>.</summary>
         public static Result Write(NwcMesh mesh, string path)
         {
@@ -299,12 +323,11 @@ namespace PIXMYD_Nav.Core.Nwc
                 NwcApi.LiNwcSceneAddNode(scene, geometry);
                 geometry = IntPtr.Zero;
 
-                NwcApi.WriteStatus written = NwcApi.LiNwcSceneWrite(
-                    scene, path, IntPtr.Zero, IntPtr.Zero);
+                NwcApi.WriteStatus written = NwcApi.LiNwcSceneWriteCacheEx(
+                    scene, null, path, IntPtr.Zero, IntPtr.Zero);
                 if (written != NwcApi.WriteStatus.Ok)
                 {
-                    result.Message = "The NWC writer refused to write the file (status "
-                                   + written + ").";
+                    result.Message = WriteFailure(written, path);
                     return result;
                 }
 
