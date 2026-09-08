@@ -583,6 +583,11 @@ namespace PIXMYD_Nav
         /// a kilometre away, which at least is obvious; getting it wrong on one
         /// drawn in feet puts it three metres away, which is not.
         /// </summary>
+        /// <summary>How far around the anchor to look for the model's grid.
+        /// Far enough to catch the walls of the room the scan lands in, near
+        /// enough not to average in the next building.</summary>
+        private const double GridSearchRadiusMetres = 25;
+
         private void PlaceCapture(CaptureFile capture, CaptureSolution solution, double[] placement)
         {
             string manifest = WritePlacementFile(capture, solution, placement);
@@ -616,6 +621,7 @@ namespace PIXMYD_Nav
             // Read before converting, not just before placing: the converter
             // turns the mesh into this document's frame as it writes, because
             // an NWC carries no up axis for a reader to act on.
+            NwcConverter.Result made = null;
             string upAxis = "Z";
             try { upAxis = SceneReader.Capture(_document).UpAxis; } catch (Exception) { }
 
@@ -628,7 +634,7 @@ namespace PIXMYD_Nav
                 // exporter build loaded in-process takes the application down
                 // with it. See NwcConverter for the whole story.
                 string nwcPath = Path.ChangeExtension(geometryPath, ".nwc");
-                NwcConverter.Result made = NwcConverter.Convert(
+                made = NwcConverter.Convert(
                     geometryPath, nwcPath, "Scan " + Short(capture.CaptureId), upAxis);
                 if (!made.Ok)
                 {
@@ -691,6 +697,8 @@ namespace PIXMYD_Nav
             // reader, which knows the file declares Y-up; an NWC was turned by
             // the converter, because an NWC declares nothing. Same turn, so
             // the same correction, and no branch to get the wrong way round.
+            placement = SnappedToModelGrid(capture, solution, placement, made);
+
             double[] basis = TransformMath.FbxCaptureBasis(upAxis);
             double[] fromImportedFbx = TransformMath.Multiply(placement, basis);
             double[] inDocumentUnits = TransformMath.WithTranslationScaled(fromImportedFbx, toDocument);
@@ -709,6 +717,75 @@ namespace PIXMYD_Nav
             StatusText.Text =
                 "Scan appended and placed — " + AccuracyBands.Classify(solution.RmsError).Label +
                 " fit at " + Millimetres(solution.RmsError) + ".";
+        }
+
+        /// <summary>
+        /// Turn an unmeasured placement onto the model's grid.
+        ///
+        /// A hand-placed capture arrives upright at an arbitrary heading --
+        /// ARKit is gravity-aligned, so its horizontal axes are wherever the
+        /// phone was pointing when the session began, and nothing in the
+        /// capture records north. Across three captures of one building that
+        /// heading came out 49, 37 and 87 degrees, so there is no constant to
+        /// bake and no way to derive it from the file.
+        ///
+        /// The walls can be asked instead. Both meshes are rectilinear and both
+        /// are in this document's frame, so the difference between their
+        /// dominant wall bearings is the turn. See GridBearing for what that
+        /// is and is not.
+        ///
+        /// Only for <see cref="CaptureSolution.NotMeasured"/>. A solved capture
+        /// has a heading somebody measured against control, and a guess from
+        /// shape has no business overruling it.
+        ///
+        /// Every failure here leaves the placement exactly as it arrived: no
+        /// model geometry near the anchor, walls that do not agree, an older
+        /// converter that reports no bearing. The scan is then upright at an
+        /// arbitrary heading, which is where it was before any of this.
+        /// </summary>
+        private double[] SnappedToModelGrid(
+            CaptureFile capture, CaptureSolution solution, double[] placement,
+            NwcConverter.Result made)
+        {
+            if (placement == null || placement.Length != 16) return placement;
+            if (solution == null || !solution.NotMeasured) return placement;
+            if (made == null || double.IsNaN(made.BearingDegrees)) return placement;
+
+            try
+            {
+                // Around where the scan is going, not the whole model: a
+                // federated site has grids that disagree, and the one that
+                // matters is the one the scan is landing on.
+                var at = new Point3D(
+                    placement[12] / _scaleToMeters,
+                    placement[13] / _scaleToMeters,
+                    placement[14] / _scaleToMeters);
+
+                ModelItemCollection near = PrimitiveHarvester.ItemsNear(
+                    _document, at, GridSearchRadiusMetres / _scaleToMeters,
+                    PrimitiveHarvester.DefaultItemBudget);
+                MeshSoup soup = PrimitiveHarvester.Harvest(near, _scaleToMeters, 60000);
+                if (soup == null || soup.TriangleCount == 0) return placement;
+
+                GridBearing.Result model = GridBearing.Estimate(soup.Vertices, soup.Triangles);
+                if (!model.Found) return placement;
+
+                double turn = GridBearing.Correction(made.BearingDegrees, model.Degrees);
+
+                OnTransferActivity(
+                    "Turned the scan " + turn.ToString("0.#") + " degrees onto the model's grid "
+                    + "(scan walls " + made.BearingDegrees.ToString("0.#") + ", model walls "
+                    + model.Degrees.ToString("0.#") + "). Not measured -- check the facing.");
+
+                return TransformMath.Turned(
+                    placement, new double[] { 0, 0, 1 }, turn,
+                    new double[] { placement[12], placement[13], placement[14] });
+            }
+            catch (Exception)
+            {
+                // Guessing a heading is a convenience. It never costs the append.
+                return placement;
+            }
         }
 
         /// <summary>

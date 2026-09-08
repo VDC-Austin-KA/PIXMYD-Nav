@@ -29,6 +29,7 @@ namespace PIXMYD_Nav
             TransformRoundTrip(ref failures);
             FbxImportBasisUndoesTheReadersTurn(ref failures);
             AHandPlacedCaptureStandsUp(ref failures);
+            WallsGiveUpTheBuildingsGrid(ref failures);
             NudgeMovesAlongTheDocumentAxes(ref failures);
             TurnHoldsThePivotStill(ref failures);
             GravitySolveRecoversAKnownTransform(ref failures);
@@ -195,6 +196,80 @@ namespace PIXMYD_Nav
         /// transform the plugin hands Navisworks, and it has to come out
         /// pointing at the document's ceiling.
         /// </summary>
+        /// <summary>
+        /// The grid a scan gets snapped to, and the honesty about not knowing.
+        ///
+        /// Built as a room rather than as loose triangles because the thing
+        /// being measured is a building: four walls, area-weighted, with a
+        /// floor that must not vote.
+        /// </summary>
+        private static void WallsGiveUpTheBuildingsGrid(ref int failures)
+        {
+            // A rectangular room turned 30 degrees off the document's axes.
+            var walls = Room(30, 8, 5, 3);
+            GridBearing.Result found = GridBearing.Estimate(walls.Key, walls.Value);
+
+            Program.Check(found.Found, "four walls are a grid", ref failures);
+            Program.Check(Math.Abs(GridBearing.Correction(found.Degrees, 30)) < 2.0,
+                "a room turned 30 degrees reads as 30, got " + found.Degrees.ToString("0.#"),
+                ref failures);
+
+            // The correction takes the short way round. A scan 80 degrees off
+            // a grid known only mod 90 is 10 degrees the other way, not 80.
+            Program.Check(Math.Abs(GridBearing.Correction(0, 80) - (-10)) < 1e-9,
+                "the correction folds to the short turn, got "
+                    + GridBearing.Correction(0, 80).ToString("0.###"), ref failures);
+            Program.Check(Math.Abs(GridBearing.Correction(10, 55) - 45) < 1e-9,
+                "45 degrees stays 45", ref failures);
+
+            // A floor on its own has no grid, and saying so is the point: the
+            // alternative is turning somebody's scan by a number read off a
+            // ceiling tile.
+            var flat = Room(30, 8, 5, 0);
+            Program.Check(!GridBearing.Estimate(flat.Key, flat.Value).Found,
+                "a floor alone is not a grid", ref failures);
+
+            Program.Check(!GridBearing.Estimate(null, null).Found,
+                "nothing is not a grid", ref failures);
+        }
+
+        /// <summary>
+        /// A closed box turned <paramref name="degrees"/> about the vertical:
+        /// a floor, and four walls when <paramref name="height"/> is not zero.
+        /// </summary>
+        private static KeyValuePair<List<Vec3>, List<int>> Room(
+            double degrees, double width, double depth, double height)
+        {
+            double t = degrees * Math.PI / 180.0, c = Math.Cos(t), s = Math.Sin(t);
+            var corners = new[]
+            {
+                new[] { -width / 2, -depth / 2 }, new[] { width / 2, -depth / 2 },
+                new[] { width / 2, depth / 2 }, new[] { -width / 2, depth / 2 },
+            };
+
+            var vertices = new List<Vec3>();
+            var triangles = new List<int>();
+            foreach (var corner in corners)
+            {
+                double x = corner[0] * c - corner[1] * s;
+                double y = corner[0] * s + corner[1] * c;
+                vertices.Add(new Vec3(x, y, 0));
+                vertices.Add(new Vec3(x, y, height));
+            }
+
+            // The floor, which the estimator has to ignore.
+            triangles.AddRange(new[] { 0, 2, 4, 0, 4, 6 });
+
+            if (height > 0)
+                for (int i = 0; i < 4; i++)
+                {
+                    int a = i * 2, b = ((i + 1) % 4) * 2;
+                    triangles.AddRange(new[] { a, b, a + 1, b, b + 1, a + 1 });
+                }
+
+            return new KeyValuePair<List<Vec3>, List<int>>(vertices, triangles);
+        }
+
         private static void AHandPlacedCaptureStandsUp(ref int failures)
         {
             // What the converter does to the mesh: ARKit up becomes document up.

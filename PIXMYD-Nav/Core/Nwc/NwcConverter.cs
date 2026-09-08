@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Text;
 
@@ -42,6 +43,11 @@ namespace PIXMYD_Nav.Core.Nwc
             public bool Ok;
             public string Message = "";
             public string Path = "";
+            /// <summary>The scan's dominant wall bearing in degrees, or NaN
+            /// when the walls did not agree enough to be worth using.</summary>
+            public double BearingDegrees = double.NaN;
+            /// <summary>Fraction of wall area behind that bearing.</summary>
+            public double BearingShare;
         }
 
         /// <summary>The converter ships beside the plugin, because it and its
@@ -151,7 +157,10 @@ namespace PIXMYD_Nav.Core.Nwc
                         return result;
                     }
 
-                    string said = LastLine(output.ToString());
+                    string transcript = output.ToString();
+                    ReadBearing(transcript, result);
+
+                    string said = LastLine(transcript);
                     if (process.ExitCode == 0 && File.Exists(nwcPath))
                     {
                         result.Ok = true;
@@ -174,6 +183,40 @@ namespace PIXMYD_Nav.Core.Nwc
             {
                 result.Message = "The NWC converter could not be run: " + ex.Message;
                 return result;
+            }
+        }
+
+        /// <summary>
+        /// Pull the converter's `bearing: &lt;degrees&gt; &lt;share&gt;` line out of
+        /// what it said, if it said one.
+        ///
+        /// Absent is the ordinary case, not a failure: a curved or cluttered
+        /// space has no grid to report, and an older converter beside a newer
+        /// plugin says nothing either. Both end with the bearing unknown, which
+        /// is what the caller is already prepared for.
+        /// </summary>
+        private static void ReadBearing(string text, Result result)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            var reader = new StringReader(text);
+            string line;
+            while ((line = reader.ReadLine()) != null)
+            {
+                string trimmed = line.Trim();
+                if (!trimmed.StartsWith("bearing:", StringComparison.OrdinalIgnoreCase)) continue;
+
+                string[] parts = trimmed.Substring("bearing:".Length)
+                    .Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length < 1) continue;
+
+                double degrees, share;
+                if (!double.TryParse(parts[0], NumberStyles.Float,
+                                     CultureInfo.InvariantCulture, out degrees)) continue;
+                result.BearingDegrees = degrees;
+                if (parts.Length > 1 && double.TryParse(parts[1], NumberStyles.Float,
+                                                        CultureInfo.InvariantCulture, out share))
+                    result.BearingShare = share;
+                return;
             }
         }
 

@@ -1,5 +1,7 @@
 using System;
+using System.Globalization;
 using System.IO;
+using PIXMYD_Nav.Core.Capture;
 using PIXMYD_Nav.Core.Nwc;
 
 namespace PIXMYD_Nav.Obj2Nwc
@@ -62,6 +64,18 @@ namespace PIXMYD_Nav.Obj2Nwc
                     read.Mesh.TurnYUpToZUp();
 
                 NwcWriter.Result written = NwcWriter.Write(read.Mesh, output);
+
+                // The scan's grid, for the plugin to line up with the model's.
+                // Reported before the message, because the plugin reads the
+                // last line as the sentence to show a person -- this is a
+                // number for the machine and has no business being it.
+                GridBearing.Result grid = GridBearing.Estimate(
+                    read.Mesh.Vertices, read.Mesh.Triangles);
+                if (written.Ok && grid.Found)
+                    Console.WriteLine("bearing: "
+                        + grid.Degrees.ToString("0.###", CultureInfo.InvariantCulture) + " "
+                        + grid.Share.ToString("0.###", CultureInfo.InvariantCulture));
+
                 Console.WriteLine(written.Message);
                 return written.Ok ? Ok : CouldNotWrite;
             }
