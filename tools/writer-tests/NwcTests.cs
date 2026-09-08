@@ -25,6 +25,7 @@ namespace PIXMYD_Nav
             UvsAreCarriedPerCornerNotPerVertex(ref failures);
             ATextureNeedsBothHalves(ref failures);
             PathsSurviveTheCommandLine(ref failures);
+            AYUpCaptureIsTurnedIntoTheDocumentsFrame(ref failures);
             return failures;
         }
 
@@ -193,6 +194,62 @@ namespace PIXMYD_Nav
         /// `"C:\folder\"` is not a quoted path; it is an unterminated
         /// argument that swallows whatever came next.
         /// </summary>
+        /// <summary>
+        /// The turn that stops a scan arriving on its side.
+        ///
+        /// An FBX declares Y-up and Navisworks' reader turns it into the
+        /// document's Z-up frame. An NWC declares nothing, so the converter
+        /// has to do the same turn itself, and it has to be the same turn:
+        /// TransformMath.FbxCaptureBasis undoes it downstream, and the two
+        /// only cancel if they agree.
+        ///
+        /// The direction is pinned against a measurement rather than a
+        /// derivation. A scan that came in wrong was corrected by hand in
+        /// Navisworks and the correction read off as 101.279 degrees about
+        /// (0.842, 0.386, 0.376). That decomposes into this quarter turn about
+        /// +X and 49.3 degrees about the document's vertical -- the heading a
+        /// hand placement picks, which is per-capture and not ours to bake.
+        /// Turn the wrong way and the leftover is 178.6 degrees about a
+        /// horizontal axis, which is nothing.
+        /// </summary>
+        private static void AYUpCaptureIsTurnedIntoTheDocumentsFrame(ref int failures)
+        {
+            var mesh = new NwcMesh();
+            // A metre along each axis, so every component is distinguishable.
+            mesh.Vertices = new List<Vec3> {
+                new Vec3(1, 0, 0), new Vec3(0, 1, 0), new Vec3(0, 0, 1) };
+            mesh.Triangles = new List<int> { 0, 1, 2 };
+            mesh.Normals = new List<Vec3> {
+                new Vec3(0, 1, 0), new Vec3(0, 1, 0), new Vec3(0, 1, 0) };
+
+            mesh.TurnYUpToZUp();
+
+            // (x, y, z) -> (x, -z, y): a quarter turn about +X.
+            Program.Check(Same(mesh.Vertices[0], 1, 0, 0), "X is left where it was", ref failures);
+            Program.Check(Same(mesh.Vertices[1], 0, 0, 1),
+                "the capture's up axis becomes the document's", ref failures);
+            Program.Check(Same(mesh.Vertices[2], 0, -1, 0),
+                "the capture's forward axis lies down", ref failures);
+
+            // Normals turn too, or the mesh is lit from the wrong side.
+            Program.Check(Same(mesh.Normals[0], 0, 0, 1),
+                "an up-facing normal faces up in the document", ref failures);
+
+            // Four quarter turns is where it started, so the turn is a
+            // rotation and not a reflection that happens to look like one.
+            var box = new NwcMesh();
+            box.Vertices = new List<Vec3> { new Vec3(0.3, -1.7, 2.5) };
+            box.Triangles = new List<int> { 0, 0, 0 };
+            for (int i = 0; i < 4; i++) box.TurnYUpToZUp();
+            Program.Check(Same(box.Vertices[0], 0.3, -1.7, 2.5),
+                "four quarter turns is identity", ref failures);
+        }
+
+        private static bool Same(Vec3 v, double x, double y, double z)
+        {
+            return Math.Abs(v.X - x) < 1e-9 && Math.Abs(v.Y - y) < 1e-9 && Math.Abs(v.Z - z) < 1e-9;
+        }
+
         private static void PathsSurviveTheCommandLine(ref int failures)
         {
             Program.Check(NwcConverter.Quote("plain") == "\"plain\"",

@@ -39,6 +39,45 @@ namespace PIXMYD_Nav.Core.Nwc
         public string Name = "PIXMYD scan";
 
         /// <summary>
+        /// Turn a Y-up mesh into a Z-up one: (x, y, z) becomes (x, -z, y).
+        ///
+        /// This is the turn Navisworks' FBX reader used to do for us, and the
+        /// reason it has to be done by hand now. An FBX declares its own up
+        /// axis, so the reader knew the geometry was Y-up and rotated it into
+        /// the document's Z-up frame on the way in. An NWC declares nothing of
+        /// the kind -- nwcreate writes the coordinates it is given and
+        /// Navisworks reads them as document coordinates. So a capture in
+        /// ARKit's Y-up frame arrives lying on its side.
+        ///
+        /// Baking the turn here rather than correcting for it downstream keeps
+        /// one story: an appended scan is upright before anything is placed,
+        /// which matters most in the case that has no solution to apply -- a
+        /// capture with no correspondences is hand-placed, and hand placement
+        /// moves a model without rotating it.
+        ///
+        /// A quarter turn about +X, which is exactly what
+        /// TransformMath.FbxCaptureBasis exists to undo, so the two stay a
+        /// matched pair.
+        ///
+        /// Normals turn with the positions. Leaving them would light the mesh
+        /// from the wrong side, which reads as a shading bug rather than as
+        /// this one. UVs address an image and do not move.
+        /// </summary>
+        public void TurnYUpToZUp()
+        {
+            for (int i = 0; i < Vertices.Count; i++)
+            {
+                Vec3 v = Vertices[i];
+                Vertices[i] = new Vec3(v.X, -v.Z, v.Y);
+            }
+            for (int i = 0; i < Normals.Count; i++)
+            {
+                Vec3 n = Normals[i];
+                Normals[i] = new Vec3(n.X, -n.Z, n.Y);
+            }
+        }
+
+        /// <summary>
         /// The image the UVs address, as a full path, or empty.
         ///
         /// A path rather than pixels because that is what nwcreate takes: a

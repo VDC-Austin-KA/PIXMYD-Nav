@@ -613,7 +613,12 @@ namespace PIXMYD_Nav
             // because it is the format this plugin can read and it carries a
             // texture coordinate per polygon corner, which is what a
             // photographic atlas needs.
-            bool convertedToNwc = false;
+            // Read before converting, not just before placing: the converter
+            // turns the mesh into this document's frame as it writes, because
+            // an NWC carries no up axis for a reader to act on.
+            string upAxis = "Z";
+            try { upAxis = SceneReader.Capture(_document).UpAxis; } catch (Exception) { }
+
             if (string.Equals(Path.GetExtension(geometryPath), ".obj",
                               StringComparison.OrdinalIgnoreCase))
             {
@@ -624,7 +629,7 @@ namespace PIXMYD_Nav
                 // with it. See NwcConverter for the whole story.
                 string nwcPath = Path.ChangeExtension(geometryPath, ".nwc");
                 NwcConverter.Result made = NwcConverter.Convert(
-                    geometryPath, nwcPath, "Scan " + Short(capture.CaptureId));
+                    geometryPath, nwcPath, "Scan " + Short(capture.CaptureId), upAxis);
                 if (!made.Ok)
                 {
                     MessageBox.Show(this, made.Message, "The scan could not be converted",
@@ -634,7 +639,6 @@ namespace PIXMYD_Nav
                 OnTransferActivity("Converted " + capture.GeometryFile + " to NWC — "
                                    + made.Message);
                 geometryPath = nwcPath;
-                convertedToNwc = true;
             }
             else if (!capture.GeometryIsAppendable)
             {
@@ -679,19 +683,15 @@ namespace PIXMYD_Nav
             // millimetre model puts the scan a kilometre away, which at least
             // is obvious; on a model drawn in feet it puts it three metres
             // away, which is not.
-            string upAxis = "Z";
-            try { upAxis = SceneReader.Capture(_document).UpAxis; } catch (Exception) { }
-
             double toDocument = _scaleToMeters == 0 ? 1.0 : 1.0 / _scaleToMeters;
-            // An FBX declares Y as up, so Navisworks' reader turns it into
-            // the document's Z-up frame on the way in, and the solution -- which
-            // maps the capture's own ARKit frame -- has to be composed with the
-            // inverse of that turn. An NWC written here went in unturned,
-            // because nothing read it; the coordinates are the ones we wrote.
-            // Applying the FBX correction to it would lay the scan on its side.
-            double[] basis = convertedToNwc
-                ? TransformMath.Compose(new double[] { 0, 0, 1 }, 0, new double[] { 0, 0, 0 })
-                : TransformMath.FbxCaptureBasis(upAxis);
+            // Whichever way the mesh arrived, it is in the document's frame by
+            // now and the solution is not: the solution maps the capture's own
+            // ARKit frame, so it has to be composed with the inverse of the
+            // turn that got the mesh here. An FBX was turned by Navisworks'
+            // reader, which knows the file declares Y-up; an NWC was turned by
+            // the converter, because an NWC declares nothing. Same turn, so
+            // the same correction, and no branch to get the wrong way round.
+            double[] basis = TransformMath.FbxCaptureBasis(upAxis);
             double[] fromImportedFbx = TransformMath.Multiply(placement, basis);
             double[] inDocumentUnits = TransformMath.WithTranslationScaled(fromImportedFbx, toDocument);
 

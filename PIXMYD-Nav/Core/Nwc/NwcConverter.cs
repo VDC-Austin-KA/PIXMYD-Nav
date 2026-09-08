@@ -73,8 +73,14 @@ namespace PIXMYD_Nav.Core.Nwc
         ///
         /// <paramref name="name"/> is what the node is called in the model
         /// tree; empty leaves the converter's default.
+        ///
+        /// <paramref name="documentUpAxis"/> is the open document's up axis.
+        /// The capture is ARKit's Y-up and an NWC declares no up axis of its
+        /// own, so the converter turns the mesh into the document's frame as
+        /// it writes -- the turn Navisworks' FBX reader used to do for us.
         /// </summary>
-        public static Result Convert(string objPath, string nwcPath, string name)
+        public static Result Convert(string objPath, string nwcPath, string name,
+                                     string documentUpAxis)
         {
             var result = new Result { Path = nwcPath ?? "" };
 
@@ -96,8 +102,12 @@ namespace PIXMYD_Nav.Core.Nwc
             var start = new ProcessStartInfo
             {
                 FileName = exe,
+                // The name is positional and the up axis comes after it, so
+                // an unnamed node still has to occupy its place.
                 Arguments = Quote(objPath) + " " + Quote(nwcPath)
-                          + (string.IsNullOrWhiteSpace(name) ? "" : " " + Quote(name)),
+                          + " " + Quote(name ?? "")
+                          + " " + Quote(string.IsNullOrWhiteSpace(documentUpAxis)
+                                            ? "Z" : documentUpAxis.Trim()),
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,

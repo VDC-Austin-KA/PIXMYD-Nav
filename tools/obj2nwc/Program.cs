@@ -29,15 +29,20 @@ namespace PIXMYD_Nav.Obj2Nwc
 
         private static int Main(string[] args)
         {
-            if (args.Length < 2 || args.Length > 3)
+            if (args.Length < 2 || args.Length > 4)
             {
-                Console.WriteLine("usage: obj2nwc <input.obj> <output.nwc> [node name]");
+                Console.WriteLine(
+                    "usage: obj2nwc <input.obj> <output.nwc> [node name] [document up axis: Z|Y]");
                 return BadArguments;
             }
 
             string input = args[0];
             string output = args[1];
-            string name = args.Length == 3 ? args[2] : "";
+            string name = args.Length >= 3 ? args[2] : "";
+            // Z unless told otherwise: a Navisworks document is Z-up, and the
+            // capture is ARKit's Y-up. See the turn in NwcMesh for why the
+            // converter has to know.
+            string upAxis = args.Length >= 4 ? args[3] : "Z";
 
             try
             {
@@ -48,6 +53,13 @@ namespace PIXMYD_Nav.Obj2Nwc
                     return CouldNotRead;
                 }
                 if (!string.IsNullOrWhiteSpace(name)) read.Mesh.Name = name;
+
+                // The OBJ is in the capture's own frame, which is ARKit's:
+                // Y-up. An NWC carries no up-axis declaration for a reader to
+                // act on, so the turn into the document's frame happens here
+                // or it does not happen at all.
+                if (!string.Equals(upAxis.Trim(), "Y", StringComparison.OrdinalIgnoreCase))
+                    read.Mesh.TurnYUpToZUp();
 
                 NwcWriter.Result written = NwcWriter.Write(read.Mesh, output);
                 Console.WriteLine(written.Message);
